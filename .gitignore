@@ -46,6 +46,9 @@ htmlcov/
 # Logs
 *.log
 
+# Debug files
+debug/
+
 # Type checking
 .mypy_cache/
 .pytype/

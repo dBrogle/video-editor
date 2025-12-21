@@ -12,10 +12,13 @@ from src.pipeline import (
     prompt_llm_for_editing,
     generate_adjusted_sentences,
     create_edited_video,
-    create_final_cut,
-    extract_final_cut_audio,
-    downsample_final_cut,
-    transcribe_final_cut,
+    feedback_loop_for_cut,
+    parse_google_doc_script,
+    place_google_doc_images,
+    create_video_with_google_doc_images,
+    create_full_res_cut_video,
+    create_full_res_video_with_images,
+    create_full_res_video_single_pass,
 )
 
 
@@ -36,8 +39,17 @@ def display_menu() -> list[int]:
     print("  4. Prompt LLM for editing")
     print("  5. Generate adjusted sentences (silence removal)")
     print("  6. Create edited video (downsampled)")
-    print("  7. Create final cut, extract audio, downsample & transcribe")
-    print("  0. Run all steps")
+    print(
+        "  7. Two-stage feedback loop - Review sentence selection & adjust timestamps"
+    )
+    print("  8. Parse Google Doc script (extract text & images)")
+    print("  9. Place Google Doc images (LLM-based placement)")
+    print(" 10. Create video with Google Doc images (downsampled)")
+    print(" 11. Cut full resolution video + add images (single pass)")
+    print("\n Advanced (two-step approach):")
+    print(" 12. Cut full resolution video only (no images)")
+    print(" 13. Add images to full resolution video (requires step 12)")
+    print("\n  0. Run all steps (using single-pass approach)")
     print("\nEnter step numbers separated by commas (e.g., 1,2,3)")
     print("or enter 0 to run all steps.")
 
@@ -45,14 +57,15 @@ def display_menu() -> list[int]:
         choice = input("\nYour selection: ").strip()
 
         if choice == "0":
-            return [1, 2, 3, 4, 5, 6, 7]
+            return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
         try:
             steps = [int(s.strip()) for s in choice.split(",")]
-            if all(1 <= step <= 7 for step in steps):
+            valid_steps = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+            if all(step in valid_steps for step in steps):
                 return sorted(set(steps))
             else:
-                print("Error: Please enter numbers between 1 and 7")
+                print("Error: Please enter valid step numbers (1-13)")
         except ValueError:
             print("Error: Invalid input. Please enter numbers separated by commas")
 
@@ -125,13 +138,32 @@ def run_pipeline(base_name: str, steps: list[int]) -> None:
         ),
         6: ("Create edited video", lambda: create_edited_video(base_name, saver)),
         7: (
-            "Create final cut, extract audio, downsample & transcribe",
-            lambda: (
-                create_final_cut(base_name, saver),
-                extract_final_cut_audio(base_name, saver),
-                downsample_final_cut(base_name, saver),
-                transcribe_final_cut(base_name, saver),
-            ),
+            "Two-stage feedback loop - Sentence selection & timestamp adjustment",
+            lambda: feedback_loop_for_cut(base_name, saver),
+        ),
+        8: (
+            "Parse Google Doc script (extract text & images)",
+            lambda: parse_google_doc_script(base_name, saver),
+        ),
+        9: (
+            "Place Google Doc images (LLM-based placement)",
+            lambda: place_google_doc_images(base_name, saver),
+        ),
+        10: (
+            "Create video with Google Doc images (downsampled)",
+            lambda: create_video_with_google_doc_images(base_name, saver, force=False),
+        ),
+        11: (
+            "Cut full resolution video + add images (single pass)",
+            lambda: create_full_res_video_single_pass(base_name, saver, force=False),
+        ),
+        12: (
+            "Cut full resolution video only (no images)",
+            lambda: create_full_res_cut_video(base_name, saver, force=False),
+        ),
+        13: (
+            "Add images to full resolution video (requires step 12)",
+            lambda: create_full_res_video_with_images(base_name, saver, force=False),
         ),
     }
 

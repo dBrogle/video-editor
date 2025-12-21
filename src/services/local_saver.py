@@ -10,6 +10,8 @@ from src.models import (
     EditingDecision,
     EditingResult,
     AdjustedSentences,
+    GoogleDocScript,
+    GoogleDocImagePlacements,
 )
 from src.util import (
     get_transcription_path,
@@ -18,10 +20,11 @@ from src.util import (
     get_editing_decision_path,
     get_editing_result_path,
     get_adjusted_sentences_path,
-    get_final_cut_path,
-    get_final_cut_audio_path,
-    get_final_cut_downsampled_path,
-    get_final_cut_transcription_path,
+    get_google_doc_html_path,
+    get_google_doc_folder,
+    get_google_doc_images_folder,
+    get_google_doc_script_path,
+    get_google_doc_image_placements_path,
 )
 from src.constants import ASSETS_DIR
 
@@ -258,70 +261,143 @@ class LocalSaverService:
         """
         return get_adjusted_sentences_path(base_name).exists()
 
-    def final_cut_exists(self, base_name: str) -> bool:
+    def load_google_doc_html(self, base_name: str) -> str:
         """
-        Check if final cut video exists.
+        Load Google Doc HTML file content.
 
         Args:
             base_name: Base filename without extension
 
         Returns:
-            True if final cut exists, False otherwise
-        """
-        return get_final_cut_path(base_name).exists()
-
-    def final_cut_audio_exists(self, base_name: str) -> bool:
-        """
-        Check if final cut audio exists.
-
-        Args:
-            base_name: Base filename without extension
-
-        Returns:
-            True if final cut audio exists, False otherwise
-        """
-        return get_final_cut_audio_path(base_name).exists()
-
-    def final_cut_downsampled_exists(self, base_name: str) -> bool:
-        """
-        Check if downsampled final cut video exists.
-
-        Args:
-            base_name: Base filename without extension
-
-        Returns:
-            True if downsampled final cut exists, False otherwise
-        """
-        return get_final_cut_downsampled_path(base_name).exists()
-
-    def final_cut_transcription_exists(self, base_name: str) -> bool:
-        """
-        Check if final cut transcription exists.
-
-        Args:
-            base_name: Base filename without extension
-
-        Returns:
-            True if final cut transcription exists, False otherwise
-        """
-        return get_final_cut_transcription_path(base_name).exists()
-
-    def load_final_cut_transcription(self, base_name: str) -> Transcript:
-        """
-        Load final cut transcription from JSON file.
-
-        Args:
-            base_name: Base filename without extension
-
-        Returns:
-            Transcript object
+            HTML content as string
 
         Raises:
-            FileNotFoundError: If transcription file doesn't exist
+            FileNotFoundError: If HTML file doesn't exist
         """
-        path = get_final_cut_transcription_path(base_name)
+        path = get_google_doc_html_path(base_name)
         if not path.exists():
-            raise FileNotFoundError(f"Final cut transcription not found: {path}")
+            raise FileNotFoundError(f"Google Doc HTML not found: {path}")
+
+        return path.read_text(encoding="utf-8")
+
+    def google_doc_html_exists(self, base_name: str) -> bool:
+        """
+        Check if Google Doc HTML file exists.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            True if HTML file exists, False otherwise
+        """
+        return get_google_doc_html_path(base_name).exists()
+
+    def get_google_doc_images_path(self, base_name: str) -> Path:
+        """
+        Get path to Google Doc images folder.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            Path to images folder
+        """
+        return get_google_doc_images_folder(base_name)
+
+    def save_google_doc_script(self, base_name: str, script: GoogleDocScript) -> Path:
+        """
+        Save Google Doc script to JSON file.
+
+        Args:
+            base_name: Base filename without extension
+            script: GoogleDocScript object to save
+
+        Returns:
+            Path to saved script file
+        """
+        path = get_google_doc_script_path(base_name)
+        path.write_text(script.model_dump_json(indent=2))
+        return path
+
+    def load_google_doc_script(self, base_name: str) -> GoogleDocScript:
+        """
+        Load Google Doc script from JSON file.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            GoogleDocScript object
+
+        Raises:
+            FileNotFoundError: If script file doesn't exist
+        """
+        path = get_google_doc_script_path(base_name)
+        if not path.exists():
+            raise FileNotFoundError(f"Google Doc script not found: {path}")
 
         data = json.loads(path.read_text())
-        return Transcript(**data)
+        return GoogleDocScript(**data)
+
+    def google_doc_script_exists(self, base_name: str) -> bool:
+        """
+        Check if Google Doc script file exists.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            True if script file exists, False otherwise
+        """
+        return get_google_doc_script_path(base_name).exists()
+
+    def save_google_doc_image_placements(
+        self, base_name: str, placements: GoogleDocImagePlacements
+    ) -> Path:
+        """
+        Save Google Doc image placements to JSON file.
+
+        Args:
+            base_name: Base filename without extension
+            placements: GoogleDocImagePlacements object to save
+
+        Returns:
+            Path to saved placements file
+        """
+        path = get_google_doc_image_placements_path(base_name)
+        path.write_text(placements.model_dump_json(indent=2))
+        return path
+
+    def load_google_doc_image_placements(
+        self, base_name: str
+    ) -> GoogleDocImagePlacements:
+        """
+        Load Google Doc image placements from JSON file.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            GoogleDocImagePlacements object
+
+        Raises:
+            FileNotFoundError: If placements file doesn't exist
+        """
+        path = get_google_doc_image_placements_path(base_name)
+        if not path.exists():
+            raise FileNotFoundError(f"Image placements not found: {path}")
+
+        data = json.loads(path.read_text())
+        return GoogleDocImagePlacements(**data)
+
+    def google_doc_image_placements_exist(self, base_name: str) -> bool:
+        """
+        Check if Google Doc image placements file exists.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            True if placements file exists, False otherwise
+        """
+        return get_google_doc_image_placements_path(base_name).exists()

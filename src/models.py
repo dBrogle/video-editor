@@ -68,10 +68,34 @@ class LLMTranscriptSentence(BaseModel):
     sentence: str = Field(..., description="The complete sentence text")
     start: float = Field(..., description="Start time of the sentence in seconds")
     end: float = Field(..., description="End time of the sentence in seconds")
+    words: list[WordTimestamp] = Field(
+        default_factory=list, description="Word-level timestamps for the sentence"
+    )
 
     def __str__(self) -> str:
         """Format sentence as [{start}-{end}]-{sentence}"""
         return f"[{self.start}-{self.end}]-{self.sentence}"
+
+    def to_dict_for_prompt(self, include_words: bool = False) -> dict:
+        """
+        Convert to dictionary for LLM prompts.
+
+        Args:
+            include_words: Whether to include word-level timestamps
+
+        Returns:
+            Dictionary representation
+        """
+        result = {
+            "sentence": self.sentence,
+            "start": self.start,
+            "end": self.end,
+        }
+        if include_words and self.words:
+            result["words"] = [
+                {"word": w.word, "start": w.start, "end": w.end} for w in self.words
+            ]
+        return result
 
 
 class EditingDecision(BaseModel):
@@ -125,6 +149,9 @@ class AdjustedSentence(BaseModel):
     text: str = Field(..., description="The sentence text")
     index: str = Field(..., description="The index of the sentence")
     threshold_source: str = Field(..., description="Source of audio thresholding")
+    words: list[WordTimestamp] = Field(
+        default_factory=list, description="Word-level timestamps for the sentence"
+    )
 
 
 class AdjustedSentences(BaseModel):
@@ -134,4 +161,86 @@ class AdjustedSentences(BaseModel):
 
     sentences: list[AdjustedSentence] = Field(
         ..., description="List of sentences with adjusted timestamps"
+    )
+
+
+class ImageDescription(BaseModel):
+    """
+    Description of an image to be generated, with sentence associations.
+    """
+
+    description: str = Field(..., description="Human-readable description of the image")
+    detailed_prompt: str = Field(
+        ..., description="Detailed prompt optimized for image generation"
+    )
+    sentence_ids: list[str] = Field(
+        ..., description="List of sentence IDs where this image should be shown"
+    )
+
+
+class ImageMetadata(BaseModel):
+    """
+    Metadata for a generated image.
+    """
+
+    filename: str = Field(..., description="Image filename (e.g., 'image_001.png')")
+    prompt: str = Field(..., description="The prompt used to generate this image")
+    sentence_ids: list[str] = Field(
+        ..., description="List of sentence IDs where this image is shown"
+    )
+    generated_at: str = Field(..., description="ISO timestamp of generation")
+    generator_service: str = Field(
+        ..., description="Service used to generate (e.g., 'dalle', 'stability')"
+    )
+
+
+class ImagesMetadataFile(BaseModel):
+    """
+    Container for all image metadata in a project.
+    """
+
+    images: list[ImageMetadata] = Field(
+        default_factory=list, description="List of all image metadata"
+    )
+
+
+class GoogleDocLine(BaseModel):
+    """
+    Represents a line of text from a Google Doc with optional associated image.
+    """
+
+    text: str = Field(..., description="The line text content")
+    image_filename: Optional[str] = Field(
+        None, description="Associated image filename if present (e.g., 'image1.png')"
+    )
+
+
+class GoogleDocScript(BaseModel):
+    """
+    Container for all lines parsed from a Google Doc HTML.
+    """
+
+    lines: list[GoogleDocLine] = Field(
+        default_factory=list, description="List of script lines with images"
+    )
+
+
+class GoogleDocImagePlacement(BaseModel):
+    """
+    Represents a placed image with sentence associations from Google Doc script.
+    """
+
+    filepath: str = Field(..., description="Path to the image file")
+    sentence_indexes: list[str] = Field(
+        ..., description="List of sentence indexes where this image should be shown"
+    )
+
+
+class GoogleDocImagePlacements(BaseModel):
+    """
+    Container for all image placements from Google Doc script.
+    """
+
+    placements: list[GoogleDocImagePlacement] = Field(
+        default_factory=list, description="List of image placements with timing"
     )

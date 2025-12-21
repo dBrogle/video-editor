@@ -11,8 +11,15 @@
 3. Cutting (editing decision, clips *was editing_result*)
 4. Adjust to remove silences (adjusted sentences)
 5. Make downsampled cut, give agent feedback on silence removal (agent iterate on 4, redo 5 until looks good)
-6. Add images to clips (start duration, end duration, location in center, size) (image_additions)
+6. Add images to clips (start duration, end duration, location in center, size) (image_descriptions, image_additions)
 7. Make downsampled video with image on clips (agent iterate on 6, redo 7 until it looks good) (agent iterate on 6, redo 7 until it looks good)
 8. Add captions (have some method that places these and determines how to highlight them and whatnot)
 9. Export final downsampled video with captions (agent iterate on 8, redo 9 until it looks good)
 10. Final export full resolution
+
+Effects that would be good to add:
+1. Face zoom (1.1x or 1.2x, enclosed in a function that finds where my face is, and zooms in keeping my face in the exact same spot)
+2. Gradual zoom and cut out (so keyframing from 1 to 1.2x slowly with face locking, and then cutting back to 1)
+
+
+For the iteration on the cutting, have it be two-step with the LLM, using a delegator-executor framework.

@@ -1,0 +1,177 @@
+<?xml version="1.0" standalone="no"?>
+<mlt LC_NUMERIC="C" version="7.13.0" title="Shotcut version 22.12.21" producer="main_bin">
+  <profile description="automatic" width="1080" height="1920" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="9" display_aspect_den="16" frame_rate_num="1475400" frame_rate_den="49181" colorspace="709"/>
+  <chain id="chain0" out="00:02:43.934">
+    <property name="length">00:02:43.968</property>
+    <property name="eof">pause</property>
+    <property name="resource">/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/assets/d1/d1.MOV</property>
+    <property name="mlt_service">avformat-novalidate</property>
+    <property name="seekable">1</property>
+    <property name="audio_index">1</property>
+    <property name="video_index">0</property>
+    <property name="mute_on_pause">0</property>
+    <property name="creation_time">2025-12-17T05:37:36</property>
+    <property name="shotcut:hash">d1a6921280fb5420f01199a9f837c5dd</property>
+    <property name="ignore_points">0</property>
+    <property name="shotcut:caption">d1.MOV</property>
+    <property name="xml">was here</property>
+  </chain>
+  <producer id="producer0" in="00:00:00.000" out="03:60:00.000">
+    <property name="length">04:00:00.000</property>
+    <property name="eof">pause</property>
+    <property name="resource">/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/assets/d1/google_doc/images/image7.png</property>
+    <property name="ttl">1</property>
+    <property name="aspect_ratio">1</property>
+    <property name="progressive">1</property>
+    <property name="seekable">1</property>
+    <property name="format">1</property>
+    <property name="mlt_service">qimage</property>
+    <property name="shotcut:hash">f20c3f35b48492ec30f05cebd1843651</property>
+    <property name="creation_time">2025-12-19T15:43:48</property>
+    <property name="xml">was here</property>
+  </producer>
+  <producer id="producer1" in="00:00:00.000" out="03:60:00.000">
+    <property name="length">04:00:00.000</property>
+    <property name="eof">pause</property>
+    <property name="resource">/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/assets/d1/google_doc/images/image6.png</property>
+    <property name="ttl">1</property>
+    <property name="aspect_ratio">1</property>
+    <property name="progressive">1</property>
+    <property name="seekable">1</property>
+    <property name="format">2</property>
+    <property name="mlt_service">qimage</property>
+    <property name="shotcut:hash">118d32c4aa025400cec215c35a8e8c7f</property>
+    <property name="creation_time">2025-12-19T15:43:48</property>
+    <property name="xml">was here</property>
+  </producer>
+  <playlist id="main_bin">
+    <property name="xml_retain">1</property>
+    <entry producer="chain0" in="00:00:00.000" out="00:02:43.934"/>
+    <entry producer="producer0" in="00:00:00.000" out="00:00:03.967"/>
+    <entry producer="producer1" in="00:00:00.000" out="00:00:03.967"/>
+  </playlist>
+  <producer id="black" in="00:00:00.000" out="00:00:13.967">
+    <property name="length">00:00:14.000</property>
+    <property name="eof">pause</property>
+    <property name="resource">0</property>
+    <property name="aspect_ratio">1</property>
+    <property name="mlt_service">color</property>
+    <property name="mlt_image_format">rgba</property>
+    <property name="set.test_audio">0</property>
+  </producer>
+  <playlist id="background">
+    <entry producer="black" in="00:00:00.000" out="00:00:13.967"/>
+  </playlist>
+  <chain id="chain1" out="00:02:43.934">
+    <property name="length">00:02:43.968</property>
+    <property name="eof">pause</property>
+    <property name="resource">/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/assets/d1/d1.MOV</property>
+    <property name="mlt_service">avformat-novalidate</property>
+    <property name="seekable">1</property>
+    <property name="audio_index">1</property>
+    <property name="video_index">0</property>
+    <property name="mute_on_pause">0</property>
+    <property name="creation_time">2025-12-17T05:37:36</property>
+    <property name="shotcut:hash">d1a6921280fb5420f01199a9f837c5dd</property>
+    <property name="ignore_points">0</property>
+    <property name="shotcut:caption">d1.MOV</property>
+    <property name="xml">was here</property>
+  </chain>
+  <chain id="chain2" out="00:02:43.934">
+    <property name="length">00:02:43.968</property>
+    <property name="eof">pause</property>
+    <property name="resource">/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/assets/d1/d1.MOV</property>
+    <property name="mlt_service">avformat-novalidate</property>
+    <property name="seekable">1</property>
+    <property name="audio_index">1</property>
+    <property name="video_index">0</property>
+    <property name="mute_on_pause">0</property>
+    <property name="creation_time">2025-12-17T05:37:36</property>
+    <property name="shotcut:hash">d1a6921280fb5420f01199a9f837c5dd</property>
+    <property name="ignore_points">0</property>
+    <property name="shotcut:caption">d1.MOV</property>
+    <property name="xml">was here</property>
+  </chain>
+  <playlist id="playlist0">
+    <property name="shotcut:video">1</property>
+    <property name="shotcut:name">V1</property>
+    <entry producer="chain1" in="00:00:17.867" out="00:00:22.834"/>
+    <entry producer="chain2" in="00:00:26.801" out="00:00:35.767"/>
+  </playlist>
+  <producer id="producer2" in="00:00:00.000" out="03:60:00.000">
+    <property name="length">04:00:00.000</property>
+    <property name="eof">pause</property>
+    <property name="resource">/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/assets/d1/google_doc/images/image7.png</property>
+    <property name="ttl">1</property>
+    <property name="aspect_ratio">1</property>
+    <property name="progressive">1</property>
+    <property name="seekable">1</property>
+    <property name="format">1</property>
+    <property name="mlt_service">qimage</property>
+    <property name="shotcut:hash">f20c3f35b48492ec30f05cebd1843651</property>
+    <property name="creation_time">2025-12-19T15:43:48</property>
+    <property name="xml">was here</property>
+    <property name="shotcut:caption">image7.png</property>
+  </producer>
+  <producer id="producer3" in="00:00:00.000" out="03:60:00.000">
+    <property name="length">04:00:00.000</property>
+    <property name="eof">pause</property>
+    <property name="resource">/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/assets/d1/google_doc/images/image6.png</property>
+    <property name="ttl">1</property>
+    <property name="aspect_ratio">1</property>
+    <property name="progressive">1</property>
+    <property name="seekable">1</property>
+    <property name="format">2</property>
+    <property name="mlt_service">qimage</property>
+    <property name="shotcut:hash">118d32c4aa025400cec215c35a8e8c7f</property>
+    <property name="creation_time">2025-12-19T15:43:48</property>
+    <property name="xml">was here</property>
+    <property name="shotcut:caption">image6.png</property>
+  </producer>
+  <playlist id="playlist1">
+    <property name="shotcut:video">1</property>
+    <property name="shotcut:name">V2</property>
+    <blank length="00:00:01.000"/>
+    <entry producer="producer2" in="00:00:00.000" out="00:00:01.967"/>
+    <blank length="00:00:03.000"/>
+    <entry producer="producer3" in="00:00:00.000" out="00:00:01.967"/>
+  </playlist>
+  <tractor id="tractor0" title="Shotcut version 22.12.21" in="00:00:00.000" out="00:00:13.967">
+    <property name="shotcut">1</property>
+    <property name="shotcut:projectAudioChannels">2</property>
+    <property name="shotcut:projectFolder">0</property>
+    <track producer="background"/>
+    <track producer="playlist0"/>
+    <track producer="playlist1"/>
+    <transition id="transition0">
+      <property name="a_track">0</property>
+      <property name="b_track">1</property>
+      <property name="mlt_service">mix</property>
+      <property name="always_active">1</property>
+      <property name="sum">1</property>
+    </transition>
+    <transition id="transition1">
+      <property name="a_track">0</property>
+      <property name="b_track">1</property>
+      <property name="version">0.1</property>
+      <property name="mlt_service">frei0r.cairoblend</property>
+      <property name="threads">0</property>
+      <property name="disable">1</property>
+    </transition>
+    <transition id="transition2">
+      <property name="a_track">0</property>
+      <property name="b_track">2</property>
+      <property name="mlt_service">mix</property>
+      <property name="always_active">1</property>
+      <property name="sum">1</property>
+    </transition>
+    <transition id="transition3">
+      <property name="a_track">1</property>
+      <property name="b_track">2</property>
+      <property name="version">0.1</property>
+      <property name="mlt_service">frei0r.cairoblend</property>
+      <property name="threads">0</property>
+      <property name="disable">0</property>
+    </transition>
+  </tractor>
+</mlt>

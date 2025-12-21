@@ -86,7 +86,12 @@ class OpenRouterLLMService(LLMService):
             )
 
             # Extract text from response
-            return self._extract_text(response)
+            output = self._extract_text(response)
+
+            # Save debug log
+            self._save_debug_log(prompt, output)
+
+            return output
 
         except requests.RequestException as e:
             raise RuntimeError(f"OpenRouter API request failed: {str(e)}") from e
