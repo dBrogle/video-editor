@@ -6,6 +6,7 @@ Provides an interactive menu for running pipeline steps.
 from src.services.local_saver import LocalSaverService
 from src.util import extract_filename_without_extension, get_input_video_path
 from src.pipeline import (
+    rotate_video,
     downsample_video,
     extract_audio,
     get_transcription,
@@ -33,6 +34,7 @@ def display_menu() -> list[int]:
     print("VIDEO EDITING PIPELINE")
     print("=" * 50)
     print("\nAvailable steps:")
+    print("  0. Rotate video if needed (check rotation metadata)")
     print("  1. Downsample video")
     print("  2. Extract audio")
     print("  3. Get transcription")
@@ -49,23 +51,23 @@ def display_menu() -> list[int]:
     print("\n Advanced (two-step approach):")
     print(" 12. Cut full resolution video only (no images)")
     print(" 13. Add images to full resolution video (requires step 12)")
-    print("\n  0. Run all steps (using single-pass approach)")
-    print("\nEnter step numbers separated by commas (e.g., 1,2,3)")
-    print("or enter 0 to run all steps.")
+    print("\n 99. Run all steps (0-11, using single-pass approach)")
+    print("\nEnter step numbers separated by commas (e.g., 0,1,2,3)")
+    print("or enter 99 to run all steps.")
 
     while True:
         choice = input("\nYour selection: ").strip()
 
-        if choice == "0":
-            return [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        if choice == "99":
+            return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
         try:
             steps = [int(s.strip()) for s in choice.split(",")]
-            valid_steps = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+            valid_steps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
             if all(step in valid_steps for step in steps):
                 return sorted(set(steps))
             else:
-                print("Error: Please enter valid step numbers (1-13)")
+                print("Error: Please enter valid step numbers (0-13)")
         except ValueError:
             print("Error: Invalid input. Please enter numbers separated by commas")
 
@@ -128,6 +130,7 @@ def run_pipeline(base_name: str, steps: list[int]) -> None:
     saver = LocalSaverService()
 
     step_functions = {
+        0: ("Rotate video if needed", lambda: rotate_video(base_name, saver)),
         1: ("Downsample video", lambda: downsample_video(base_name, saver)),
         2: ("Extract audio", lambda: extract_audio(base_name, saver)),
         3: ("Get transcription", lambda: get_transcription(base_name, saver)),

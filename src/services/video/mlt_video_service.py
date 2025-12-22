@@ -54,6 +54,125 @@ class MLTVideoService:
     def __init__(self):
         """Initialize the MLT video service."""
 
+    def rotate_video_if_needed(self, base_name: str, force: bool = False) -> Path:
+        """
+        Check if a video needs rotation and create a properly oriented .mp4 file.
+
+        This handles videos that have rotation metadata (like iPhone videos shot in portrait
+        but stored as landscape with rotation=-90). The method detects rotation metadata
+        and creates a new .mp4 file with pixels physically rotated to the correct orientation.
+
+        Args:
+            base_name: Base filename without extension
+            force: If True, regenerate even if .mp4 exists
+
+        Returns:
+            Path to the properly oriented video file (either .mp4 or original if no rotation needed)
+
+        Raises:
+            FileNotFoundError: If source video doesn't exist
+            RuntimeError: If melt command fails
+        """
+        from src.constants import ASSETS_DIR
+        from src.services.video.mlt_util import (
+            get_video_rotation,
+            create_rotation_mlt_xml,
+        )
+
+        # Look for source video files in order of preference
+        folder = ASSETS_DIR / base_name
+        source_path = None
+        for ext in [".MOV", ".mov", ".mp4", ".MP4"]:
+            test_path = folder / f"{base_name}{ext}"
+            if test_path.exists():
+                # Skip if it's already an .mp4 (unless forcing)
+                if ext.lower() == ".mp4" and not force:
+                    print_progress(f"Video already in .mp4 format: {test_path.name}")
+                    return test_path
+                source_path = test_path
+                break
+
+        if not source_path:
+            raise FileNotFoundError(f"No video file found for {base_name} in {folder}")
+
+        output_path = folder / f"{base_name}.mp4"
+
+        # Skip if output exists and not forcing
+        if output_path.exists() and not force:
+            print_progress(f"Rotated video already exists: {output_path.name}")
+            return output_path
+
+        print_progress(f"Checking rotation metadata for: {source_path.name}")
+
+        # Get video properties including rotation
+        width, height, fps_num, fps_den, rotation = get_video_rotation(source_path)
+
+        print_progress(f"Video dimensions: {width}x{height}, rotation: {rotation}°")
+
+        # Determine if we need to rotate and what the output dimensions should be
+        needs_rotation = rotation != 0
+
+        if not needs_rotation:
+            print_progress("No rotation needed, video is already properly oriented")
+            # If source is not .mp4, we should still convert it
+            if source_path.suffix.lower() != ".mp4":
+                print_progress(f"Converting {source_path.suffix} to .mp4 format...")
+                needs_rotation = True  # Set to true to trigger conversion
+            else:
+                return source_path
+
+        # For -90 or 270 degree rotation, swap width and height
+        if abs(rotation) == 90 or abs(rotation) == 270:
+            output_width = height
+            output_height = width
+            print_progress(f"Will rotate video to: {output_width}x{output_height}")
+        else:
+            output_width = width
+            output_height = height
+
+        # Create MLT XML for rotation
+        mlt_xml_path = folder / f"{base_name}_rotate.mlt"
+
+        print_progress(f"Creating MLT XML for rotation: {mlt_xml_path.name}")
+        create_rotation_mlt_xml(
+            source_path=source_path,
+            output_width=output_width,
+            output_height=output_height,
+            fps_num=fps_num,
+            fps_den=fps_den,
+            mlt_xml_path=mlt_xml_path,
+        )
+
+        print_progress("Running melt command to rotate video...")
+
+        # Run melt command
+        cmd = [
+            "melt",
+            str(mlt_xml_path),
+            "-consumer",
+            f"avformat:{output_path}",
+            "vcodec=libx264",
+            "crf=18",
+            "preset=faster",
+            "acodec=aac",
+            "pix_fmt=yuv420p",
+        ]
+
+        print_progress(f"Command: {' '.join(cmd)}")
+
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        print_progress(f"Rotated video created: {output_path.name}")
+        print_progress(f"MLT XML saved for debugging: {mlt_xml_path.name}")
+
+        # Clean up old mp4 if it exists
+        old_mp4 = folder / f"{base_name}_old.mp4"
+        if old_mp4.exists():
+            old_mp4.unlink()
+            print_progress(f"Cleaned up old file: {old_mp4.name}")
+
+        return output_path
+
     def _build_sentence_timeline(self, adjusted_sentences: AdjustedSentences) -> dict:
         """
         Build a mapping of sentence IDs to their cumulative times in the cut video.

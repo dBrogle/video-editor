@@ -508,3 +508,119 @@ def save_pretty_xml(root: ET.Element, output_path: Path) -> None:
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(pretty_xml)
+
+
+def get_video_rotation(video_path: Path) -> tuple[int, int, int, int, int]:
+    """
+    Get video rotation metadata and dimensions using ffprobe.
+
+    Args:
+        video_path: Path to video file
+
+    Returns:
+        Tuple of (width, height, fps_num, fps_den, rotation_degrees)
+        rotation_degrees will be 0 if no rotation metadata is found
+    """
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,r_frame_rate:stream_tags=rotate:stream_side_data=rotation",
+        "-of",
+        "json",
+        str(video_path),
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    probe_data = json.loads(result.stdout)
+
+    stream = probe_data["streams"][0]
+    width = stream["width"]
+    height = stream["height"]
+    fps_str = stream["r_frame_rate"]
+    fps_num, fps_den = map(int, fps_str.split("/"))
+
+    # Check for rotation in tags or side_data
+    rotation = 0
+    if "tags" in stream and "rotate" in stream["tags"]:
+        rotation = int(stream["tags"]["rotate"])
+    elif "side_data_list" in stream:
+        for side_data in stream["side_data_list"]:
+            if "rotation" in side_data:
+                rotation = int(side_data["rotation"])
+                break
+
+    return width, height, fps_num, fps_den, rotation
+
+
+def create_rotation_mlt_xml(
+    source_path: Path,
+    output_width: int,
+    output_height: int,
+    fps_num: int,
+    fps_den: int,
+    mlt_xml_path: Path,
+) -> None:
+    """
+    Create MLT XML file for video rotation/conversion.
+
+    This creates a simple MLT XML that reads a source video and outputs it
+    with the specified dimensions and frame rate. MLT will automatically handle
+    rotation based on the profile dimensions.
+
+    Args:
+        source_path: Path to source video file
+        output_width: Output video width
+        output_height: Output video height
+        fps_num: Frame rate numerator
+        fps_den: Frame rate denominator
+        mlt_xml_path: Path where MLT XML will be saved
+    """
+    # Build MLT XML
+    root = ET.Element("mlt")
+    root.set("LC_NUMERIC", "C")
+    root.set("version", "7.0.0")
+    root.set("producer", "main_bin")
+
+    # Create profile with correct output dimensions
+    profile = ET.SubElement(root, "profile")
+    profile.set("description", "Custom")
+    profile.set("width", str(output_width))
+    profile.set("height", str(output_height))
+    profile.set("progressive", "1")
+    profile.set("sample_aspect_num", "1")
+    profile.set("sample_aspect_den", "1")
+    profile.set("display_aspect_num", str(output_width))
+    profile.set("display_aspect_den", str(output_height))
+    profile.set("frame_rate_num", str(fps_num))
+    profile.set("frame_rate_den", str(fps_den))
+    profile.set("colorspace", "709")
+
+    # Create producer for source video
+    producer = ET.SubElement(root, "producer")
+    producer.set("id", "producer0")
+    prop = ET.SubElement(producer, "property")
+    prop.set("name", "resource")
+    prop.text = str(source_path)
+
+    # Create playlist
+    playlist = ET.SubElement(root, "playlist")
+    playlist.set("id", "main_bin")
+    entry = ET.SubElement(playlist, "entry")
+    entry.set("producer", "producer0")
+    entry.set("in", "0")
+    entry.set("out", "9999999")
+
+    # Create tractor
+    tractor = ET.SubElement(root, "tractor")
+    tractor.set("id", "tractor0")
+    track = ET.SubElement(tractor, "track")
+    track.set("producer", "main_bin")
+
+    # Write XML file
+    tree = ET.ElementTree(root)
+    ET.indent(tree, space="  ")
+    tree.write(str(mlt_xml_path), encoding="utf-8", xml_declaration=True)

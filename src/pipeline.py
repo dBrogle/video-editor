@@ -34,6 +34,27 @@ from src.util import (
 )
 
 
+def rotate_video(base_name: str, saver: LocalSaverService, force: bool = False) -> None:
+    """
+    Step 0: Rotate video if needed (check for rotation metadata and create .mp4).
+
+    This step checks if the source video has rotation metadata (common with iPhone videos)
+    and creates a properly oriented .mp4 file using MLT. The rotated video will be used
+    by all subsequent steps.
+
+    Args:
+        base_name: Base filename without extension
+        saver: Local saver service
+        force: If True, regenerate even if .mp4 exists
+    """
+    print_progress(f"Checking video rotation for: {base_name}")
+
+    mlt_service = MLTVideoService()
+    output_path = mlt_service.rotate_video_if_needed(base_name, force=force)
+
+    print_progress(f"Video ready: {output_path.name}")
+
+
 def downsample_video(base_name: str, saver: LocalSaverService) -> None:
     """
     Step 1: Downsample video to low resolution.

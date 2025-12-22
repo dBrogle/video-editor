@@ -246,8 +246,8 @@ def get_input_video_path(base_name: str) -> Path:
     """
     Get path to input video file.
 
-    New structure: assets/{base_name}/{base_name}.MOV (or .mov, .mp4, .MP4)
-    Example: assets/IMG_2362/IMG_2362.MOV
+    New structure: assets/{base_name}/{base_name}.mp4 (or .MOV, .mov, .MP4)
+    Example: assets/d1/d1.mp4
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
@@ -256,13 +256,13 @@ def get_input_video_path(base_name: str) -> Path:
         Full path to input video
     """
     folder = ASSETS_DIR / base_name
-    # Try common video extensions
-    for ext in [".MOV", ".mov", ".mp4", ".MP4"]:
+    # Try common video extensions (prioritize .mp4 for rotated/processed videos)
+    for ext in [".mp4", ".MP4", ".MOV", ".mov"]:
         path = folder / f"{base_name}{ext}"
         if path.exists():
             return path
-    # If none found, return with .MOV as default
-    return folder / f"{base_name}.MOV"
+    # If none found, return with .mp4 as default
+    return folder / f"{base_name}.mp4"
 
 
 def get_downsampled_video_path(base_name: str) -> Path:
