@@ -226,7 +226,14 @@ class LocalSaverService:
             Path to saved adjusted sentences file
         """
         path = get_adjusted_sentences_path(base_name)
-        path.write_text(adjusted_sentences.model_dump_json(indent=2))
+        # Debug: Check what we're about to save
+        json_data = adjusted_sentences.model_dump_json(indent=2)
+        # Count the total number of words across all sentences, and display that
+        total_words = sum(
+            len(sentence.words) for sentence in adjusted_sentences.sentences
+        )
+        print(f"OGDEAN: Total words: {total_words}")
+        path.write_text(json_data)
         return path
 
     def load_adjusted_sentences(self, base_name: str) -> AdjustedSentences:

@@ -332,8 +332,8 @@ class VideoService:
 
         Args:
             audio_path: Path to the extracted audio file
-            start: Start time of segment in original video (seconds)
-            end: End time of segment in original video (seconds)
+            start: Start time of sentence in original video (seconds)
+            end: End time of sentence in original video (seconds)
             sentence_index: Optional sentence index for debugging (1-based)
 
         Returns:
@@ -341,7 +341,7 @@ class VideoService:
         """
         start = sentence.start
         end = sentence.end
-        # Load only the specific time segment directly with librosa from the audio file
+        # Load only the specific time range directly with librosa from the audio file
         audio_array, sr = librosa.load(
             str(audio_path),
             sr=22050,
@@ -455,7 +455,7 @@ class VideoService:
         adjusted_start = start + start_offset
         adjusted_end = start + end_offset
 
-        # Apply padding (but keep within original segment bounds)
+        # Apply padding (but keep within original sentence bounds)
         adjusted_start = max(start, adjusted_start - SILENCE_PADDING)
         adjusted_end = min(end, adjusted_end + SILENCE_PADDING)
 
@@ -484,12 +484,13 @@ class VideoService:
         transcript: Transcript,
         editing_result: EditingResult,
         use_downsampled: bool = True,
+        skip_silence_removal: bool = False,
     ) -> AdjustedSentences:
         """
-        Generate adjusted sentences with silence-trimmed timestamps.
+        Generate adjusted sentences with optional silence-trimmed timestamps.
 
         This method processes each kept sentence from the editing result,
-        analyzes the audio to detect speech boundaries, and generates
+        and optionally analyzes the audio to detect speech boundaries and generates
         adjusted timestamps with silence removed from start and end.
 
         Args:
@@ -497,9 +498,10 @@ class VideoService:
             transcript: Transcript object with word-level timestamps
             editing_result: EditingResult with sentence keep/remove decisions
             use_downsampled: If True, use the downsampled video (default)
+            skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
 
         Returns:
-            AdjustedSentences object with trimmed timestamps
+            AdjustedSentences object with trimmed timestamps (or original if skipped)
 
         Raises:
             FileNotFoundError: If input video doesn't exist
@@ -512,14 +514,6 @@ class VideoService:
             input_path = get_input_video_path(base_name)
 
         validate_file_exists(input_path)
-
-        # Get audio file path
-        audio_path = get_audio_path(base_name)
-        validate_file_exists(audio_path)
-
-        print_progress(
-            f"Generating adjusted sentences with silence removal from {audio_path.name}..."
-        )
 
         # Get sentences from transcript
         sentences = prepare_transcript_for_prompt(transcript)
@@ -535,6 +529,36 @@ class VideoService:
             raise ValueError("No sentences left after filtering")
 
         print_progress(f"Processing {len(kept_sentences)} kept sentences...")
+
+        # If skipping silence removal, just use original timestamps
+        if skip_silence_removal:
+            print_progress("Skipping silence removal - using original timestamps")
+            adjusted_sentence_list = []
+            for idx, sentence in enumerate(kept_sentences, 1):
+                adjusted_sentence_list.append(
+                    AdjustedSentence(
+                        original_start=sentence.start,
+                        original_end=sentence.end,
+                        adjusted_start=sentence.start,
+                        adjusted_end=sentence.end,
+                        text=sentence.sentence,
+                        index=str(idx),
+                        threshold_source="skipped",
+                        words=sentence.words,
+                    )
+                )
+            print_progress(
+                f"Generated timestamps for {len(adjusted_sentence_list)} sentences (no silence removal)"
+            )
+            return AdjustedSentences(sentences=adjusted_sentence_list)
+
+        # Get audio file path for silence removal
+        audio_path = get_audio_path(base_name)
+        validate_file_exists(audio_path)
+
+        print_progress(
+            f"Generating adjusted sentences with silence removal from {audio_path.name}..."
+        )
 
         try:
             # Load video once (still needed for creating the edited video later)
@@ -626,7 +650,7 @@ class VideoService:
                 clips.append(clip)
 
             # Concatenate all clips
-            print_progress("Concatenating video segments...")
+            print_progress("Concatenating video clips...")
             final_video = concatenate_videoclips(clips)
 
             # Write output

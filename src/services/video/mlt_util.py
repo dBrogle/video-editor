@@ -10,6 +10,7 @@ from xml.etree import ElementTree as ET
 from xml.dom import minidom
 from datetime import datetime
 import hashlib
+from PIL import Image
 
 
 def frames_to_timecode(frames: int, fps: float) -> str:
@@ -122,6 +123,58 @@ def calculate_safe_zone(
         "width_percent": (safe_zone_width / props["width"]) * 100,
         "height_percent": (safe_zone_height / props["height"]) * 100,
     }
+
+
+def get_image_dimensions(image_path: Path) -> tuple[int, int]:
+    """
+    Get the dimensions of an image file.
+
+    Args:
+        image_path: Path to image file
+
+    Returns:
+        Tuple of (width, height)
+    """
+    with Image.open(image_path) as img:
+        return img.size
+
+
+def calculate_centered_geometry(image_path: Path, safe_zone: dict) -> str:
+    """
+    Calculate centered geometry for an image within the safe zone.
+
+    If the image is smaller than the safe zone in either dimension,
+    it will be centered within that dimension while maintaining aspect ratio.
+
+    Args:
+        image_path: Path to the image file
+        safe_zone: Safe zone dictionary with dimensions
+
+    Returns:
+        Geometry string in format "x:y:widthxheight:opacity"
+    """
+    # Get image dimensions
+    img_width, img_height = get_image_dimensions(image_path)
+
+    # Calculate aspect ratios
+    img_aspect = img_width / img_height
+    safe_aspect = safe_zone["width"] / safe_zone["height"]
+
+    # Fit image within safe zone while maintaining aspect ratio
+    if img_aspect > safe_aspect:
+        # Image is wider - fit to width
+        fitted_width = safe_zone["width"]
+        fitted_height = int(fitted_width / img_aspect)
+    else:
+        # Image is taller - fit to height
+        fitted_height = safe_zone["height"]
+        fitted_width = int(fitted_height * img_aspect)
+
+    # Center the fitted image within the safe zone
+    x_offset = safe_zone["left"] + (safe_zone["width"] - fitted_width) // 2
+    y_offset = safe_zone["top"] + (safe_zone["height"] - fitted_height) // 2
+
+    return f"{x_offset}:{y_offset}:{fitted_width}x{fitted_height}:100"
 
 
 def create_mlt_root_and_profile(props: dict) -> ET.Element:
@@ -264,14 +317,20 @@ def add_image_producer(
     root: ET.Element,
     image_index: int,
     image_path: Path,
+    safe_zone: dict | None = None,
+    center_image: bool = True,
+    use_prescaled: bool = False,
 ) -> None:
     """
-    Add image producer to MLT XML root (without filters - positioning done via composite transition).
+    Add image producer to MLT XML root with optional centering.
 
     Args:
         root: MLT XML root element
         image_index: Index of the image
-        image_path: Path to image file
+        image_path: Path to image file (can be pre-scaled)
+        safe_zone: Safe zone dimensions for centering (optional)
+        center_image: If True and safe_zone provided, center image within safe zone
+        use_prescaled: If True, assumes image is already scaled to safe zone size
     """
     # Images have a very long duration (4 hours) as they're static
     producer = ET.SubElement(
@@ -320,6 +379,79 @@ def add_image_producer(
     creation_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     creation_time_prop = ET.SubElement(producer, "property", {"name": "creation_time"})
     creation_time_prop.text = creation_time
+
+    # Add positioning filter if requested
+    if center_image and safe_zone:
+        if use_prescaled:
+            # Image is already scaled to safe zone size, just position it
+            x_offset = safe_zone["left"]
+            y_offset = safe_zone["top"]
+
+            # Add affine filter for positioning only (no scaling needed)
+            affine_filter = ET.SubElement(producer, "filter")
+            ET.SubElement(
+                affine_filter, "property", {"name": "mlt_service"}
+            ).text = "affine"
+
+            # Geometry: x:y:widthxheight:opacity
+            geometry = (
+                f"{x_offset}:{y_offset}:{safe_zone['width']}x{safe_zone['height']}:100"
+            )
+            ET.SubElement(
+                affine_filter, "property", {"name": "geometry"}
+            ).text = geometry
+            ET.SubElement(
+                affine_filter, "property", {"name": "transition.fill"}
+            ).text = "0"
+            ET.SubElement(
+                affine_filter, "property", {"name": "transition.distort"}
+            ).text = "0"
+        else:
+            # Image needs to be scaled by MLT
+            # Get image dimensions
+            img_width, img_height = get_image_dimensions(image_path)
+
+            # Scale image to FILL the entire safe zone (cover mode - may crop)
+            # Scale to whichever dimension requires MORE scaling
+            width_scale = safe_zone["width"] / img_width
+            height_scale = safe_zone["height"] / img_height
+
+            # Use the LARGER scale factor to ensure the image fills the entire safe zone
+            # Example: 100x100 image in 200x300 safe zone -> scale by 3.0 -> 300x300 (fills height, crops width)
+            # This makes images more prominent but may crop parts that extend beyond the safe zone
+            scale_factor = max(width_scale, height_scale)
+
+            # Calculate scaled dimensions
+            scaled_width = int(img_width * scale_factor)
+            scaled_height = int(img_height * scale_factor)
+
+            # Calculate centering offsets within safe zone
+            x_offset = safe_zone["left"] + (safe_zone["width"] - scaled_width) // 2
+            y_offset = safe_zone["top"] + (safe_zone["height"] - scaled_height) // 2
+
+            # Add affine filter for positioning and scaling
+            affine_filter = ET.SubElement(producer, "filter")
+            ET.SubElement(
+                affine_filter, "property", {"name": "mlt_service"}
+            ).text = "affine"
+
+            # Geometry: x:y:widthxheight:opacity
+            geometry = f"{x_offset}:{y_offset}:{scaled_width}x{scaled_height}:100"
+            ET.SubElement(
+                affine_filter, "property", {"name": "geometry"}
+            ).text = geometry
+            ET.SubElement(
+                affine_filter, "property", {"name": "transition.fill"}
+            ).text = "0"
+            ET.SubElement(
+                affine_filter, "property", {"name": "transition.distort"}
+            ).text = "0"
+            ET.SubElement(
+                affine_filter, "property", {"name": "transition.halign"}
+            ).text = "center"
+            ET.SubElement(
+                affine_filter, "property", {"name": "transition.valign"}
+            ).text = "middle"
 
     xml_prop = ET.SubElement(producer, "property", {"name": "xml"})
     xml_prop.text = "was here"
@@ -380,6 +512,7 @@ def add_composite_transition(
     a_track: int,
     b_track: int,
     safe_zone: dict,
+    center_images: bool = True,
 ) -> None:
     """
     Add composite transition for overlay positioning.
@@ -390,7 +523,10 @@ def add_composite_transition(
         a_track: Source track index
         b_track: Destination track index
         safe_zone: Safe zone dimensions for geometry
+        center_images: If True, images will be centered within safe zone (default: True)
     """
+    # Use safe zone geometry as default
+    # Note: Individual image centering is handled per-producer with affine filters
     geometry = (
         f"{safe_zone['left']}:{safe_zone['top']}:"
         f"{safe_zone['width']}x{safe_zone['height']}:100"
@@ -408,9 +544,14 @@ def add_composite_transition(
     ET.SubElement(
         composite_transition, "property", {"name": "geometry"}
     ).text = geometry
-    ET.SubElement(composite_transition, "property", {"name": "fill"}).text = "1"
+    # When center_images is True, we use fill=0 to prevent stretching
+    # and let affine filters handle centering per image
+    fill_value = "0" if center_images else "1"
+    ET.SubElement(composite_transition, "property", {"name": "fill"}).text = fill_value
     ET.SubElement(composite_transition, "property", {"name": "distort"}).text = "0"
     ET.SubElement(composite_transition, "property", {"name": "operator"}).text = "over"
+    ET.SubElement(composite_transition, "property", {"name": "halign"}).text = "center"
+    ET.SubElement(composite_transition, "property", {"name": "valign"}).text = "middle"
 
 
 def create_base_playlists(

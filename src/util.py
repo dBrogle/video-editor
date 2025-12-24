@@ -9,25 +9,29 @@ from pathlib import Path
 from src.constants import (
     ASSETS_DIR,
     STAGE_1_DOWNSAMPLED_NAME,
-    STAGE_2_AUDIO_NAME,
-    STAGE_3_TRANSCRIPTION_NAME,
-    STAGE_4_EDITING_DECISION_NAME,
-    STAGE_4_EDITING_RESULT_NAME,
+    STAGE_1_AUDIO_NAME,
+    STAGE_2_TRANSCRIPTION_NAME,
+    STAGE_3_EDITING_DECISION_NAME,
+    STAGE_3_EDITING_RESULT_NAME,
     STAGE_5_ADJUSTED_SENTENCES_NAME,
     STAGE_6_EDITED_VIDEO_NAME,
     STAGE_6_DOWNSAMPLED_EDITED_NAME,
-    STAGE_7_WITH_IMAGES_DOWNSAMPLED_NAME,
+    STAGE_7_GOOGLE_DOC_SCRIPT_NAME,
     STAGE_7_IMAGES_FOLDER_NAME,
     STAGE_7_IMAGES_METADATA_NAME,
     STAGE_7_MLT_XML_NAME,
-    STAGE_8_GOOGLE_DOC_SCRIPT_NAME,
-    STAGE_9_GOOGLE_DOC_IMAGE_PLACEMENTS_NAME,
-    STAGE_10_WITH_GOOGLE_DOC_IMAGES_NAME,
-    STAGE_10_MLT_XML_NAME,
-    STAGE_11_FULL_RES_CUT_NAME,
-    STAGE_11_FULL_RES_CUT_MLT_NAME,
+    STAGE_8_GOOGLE_DOC_IMAGE_PLACEMENTS_NAME,
+    STAGE_9_WITH_GOOGLE_DOC_IMAGES_NAME,
+    STAGE_9_MLT_XML_NAME,
+    STAGE_10_1080P_DOWNSAMPLE_NAME,
+    STAGE_11_1080P_WITH_IMAGES_NAME,
+    STAGE_11_1080P_WITH_IMAGES_MLT_NAME,
     STAGE_12_FULL_RES_WITH_IMAGES_NAME,
     STAGE_12_FULL_RES_WITH_IMAGES_MLT_NAME,
+    STAGE_13_FULL_RES_CUT_NAME,
+    STAGE_13_FULL_RES_CUT_MLT_NAME,
+    STAGE_14_FULL_RES_WITH_IMAGES_NAME,
+    STAGE_14_FULL_RES_WITH_IMAGES_MLT_NAME,
 )
 
 
@@ -48,83 +52,19 @@ def prepare_transcript_for_prompt(
     transcript: "Transcript",
 ) -> list["LLMTranscriptSentence"]:
     """
-    Convert a transcript into a list of sentences for LLM prompts.
+    Get sentences from a transcript for LLM prompts.
 
-    If the transcript already has sentences (from transcription), use those.
-    Otherwise, form sentences by collecting words until punctuation (., ?, !) is encountered.
+    The transcript should already have sentences generated during transcription.
+    This function simply returns them.
 
     Args:
-        transcript: Transcript object containing segments with word-level timestamps
+        transcript: Transcript object containing sentences with word-level timestamps
 
     Returns:
         List of LLMTranscriptSentence objects with sentence text and timing info
     """
-    from src.models import LLMTranscriptSentence
-
-    # If transcript already has sentences, return them
-    if transcript.sentences:
-        return transcript.sentences
-
-    # Otherwise, generate sentences from segments
-    from src.models import WordTimestamp
-
-    sentences: list[LLMTranscriptSentence] = []
-    current_words: list[str] = []
-    current_word_timestamps: list[WordTimestamp] = []
-    current_start: float | None = None
-    current_end: float | None = None
-
-    # Iterate through all segments and their words
-    for segment in transcript.segments:
-        for word_obj in segment.words:
-            # Set start time if this is the first word in the sentence
-            if current_start is None:
-                current_start = word_obj.start
-
-            # Update end time with each word
-            current_end = word_obj.end
-
-            # Add the word to current sentence
-            current_words.append(word_obj.word)
-            current_word_timestamps.append(word_obj)
-
-            # Check if the word ends with sentence-ending punctuation
-            if word_obj.word.rstrip().endswith((".", "?", "!")):
-                # Complete the current sentence
-                if (
-                    current_words
-                    and current_start is not None
-                    and current_end is not None
-                ):
-                    sentence_text = " ".join(current_words)
-                    sentences.append(
-                        LLMTranscriptSentence(
-                            sentence=sentence_text,
-                            start=current_start,
-                            end=current_end,
-                            words=current_word_timestamps,
-                        )
-                    )
-
-                # Reset for next sentence
-                current_words = []
-                current_word_timestamps = []
-                current_start = None
-                current_end = None
-
-    # Handle any remaining words that didn't end with punctuation
-    if current_words and current_start is not None and current_end is not None:
-        sentence_text = " ".join(current_words)
-        sentences.append(
-            LLMTranscriptSentence(
-                sentence=sentence_text,
-                start=current_start,
-                end=current_end,
-                words=current_word_timestamps,
-            )
-        )
-
-    return sentences
+    # Transcript should already have sentences from transcription
+    return transcript.sentences
 
 
 def _build_asset_path(base_filename: str, stage_name: str, extension: str) -> Path:
@@ -281,7 +221,7 @@ def get_downsampled_video_path(base_name: str) -> Path:
 
 def get_audio_path(base_name: str) -> Path:
     """
-    Get path to extracted audio file (Stage 2).
+    Get path to extracted audio file (Step 1 - Preprocess).
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
@@ -290,12 +230,12 @@ def get_audio_path(base_name: str) -> Path:
         Full path to audio file
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_2_AUDIO_NAME, "wav")
+    return _build_asset_path(base_name, STAGE_1_AUDIO_NAME, "wav")
 
 
 def get_transcription_path(base_name: str) -> Path:
     """
-    Get path to transcription JSON file (Stage 3).
+    Get path to transcription JSON file (Step 2).
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
@@ -304,12 +244,12 @@ def get_transcription_path(base_name: str) -> Path:
         Full path to transcription file
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_3_TRANSCRIPTION_NAME, "json")
+    return _build_asset_path(base_name, STAGE_2_TRANSCRIPTION_NAME, "json")
 
 
 def get_editing_decision_path(base_name: str) -> Path:
     """
-    Get path to editing decision JSON file (LLM response) (Stage 4).
+    Get path to editing decision JSON file (LLM response) (Step 3).
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
@@ -318,12 +258,12 @@ def get_editing_decision_path(base_name: str) -> Path:
         Full path to editing decision file
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_4_EDITING_DECISION_NAME, "json")
+    return _build_asset_path(base_name, STAGE_3_EDITING_DECISION_NAME, "json")
 
 
 def get_editing_result_path(base_name: str) -> Path:
     """
-    Get path to editing result JSON file (human-editable format) (Stage 4).
+    Get path to editing result JSON file (human-editable format) (Step 3/4).
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
@@ -332,12 +272,12 @@ def get_editing_result_path(base_name: str) -> Path:
         Full path to editing result file
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_4_EDITING_RESULT_NAME, "json")
+    return _build_asset_path(base_name, STAGE_3_EDITING_RESULT_NAME, "json")
 
 
 def get_edited_video_path(base_name: str, use_downsampled: bool = True) -> Path:
     """
-    Get path to edited video file (Stage 6).
+    Get path to edited video file (Step 6 - iteration preview).
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
@@ -357,7 +297,7 @@ def get_edited_video_path(base_name: str, use_downsampled: bool = True) -> Path:
 
 def get_adjusted_sentences_path(base_name: str) -> Path:
     """
-    Get path to adjusted sentences JSON file (silence-trimmed timestamps) (Stage 5).
+    Get path to adjusted sentences JSON file (silence-trimmed timestamps) (Step 5/6).
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
@@ -571,113 +511,217 @@ def get_google_doc_images_folder(base_name: str) -> Path:
 
 def get_google_doc_script_path(base_name: str) -> Path:
     """
-    Get path to Google Doc script JSON file (Step 8).
+    Get path to Google Doc script JSON file (Step 7).
 
     Args:
         base_name: Base filename without extension
 
     Returns:
-        Path to s8_google_doc_script.json file
+        Path to s7_google_doc_script.json file
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_8_GOOGLE_DOC_SCRIPT_NAME, "json")
+    return _build_asset_path(base_name, STAGE_7_GOOGLE_DOC_SCRIPT_NAME, "json")
 
 
 def get_google_doc_image_placements_path(base_name: str) -> Path:
     """
-    Get path to Google Doc image placements file (Step 9).
+    Get path to Google Doc image placements file (Step 8).
 
     Args:
         base_name: Base filename without extension
 
     Returns:
-        Path to s9_google_doc_image_placements.json file
+        Path to s8_google_doc_image_placements.json file
     """
     _ensure_asset_folder(base_name)
     return _build_asset_path(
-        base_name, STAGE_9_GOOGLE_DOC_IMAGE_PLACEMENTS_NAME, "json"
+        base_name, STAGE_8_GOOGLE_DOC_IMAGE_PLACEMENTS_NAME, "json"
     )
 
 
 def get_stage_11_with_google_doc_images_path(base_name: str) -> Path:
     """
-    Get path to step 10 video with Google Doc images (downsampled).
+    Get path to step 9 video with Google Doc images (downsampled).
 
     Args:
         base_name: Base filename without extension
 
     Returns:
-        Path to s10_with_google_doc_images.mp4
+        Path to s9_with_google_doc_images.mp4
     """
     base_folder = get_base_folder(base_name)
-    return base_folder / f"{STAGE_10_WITH_GOOGLE_DOC_IMAGES_NAME}.mp4"
+    return base_folder / f"{STAGE_9_WITH_GOOGLE_DOC_IMAGES_NAME}.mp4"
 
 
 def get_stage_11_mlt_xml_path(base_name: str) -> Path:
     """
-    Get path to step 10 MLT XML file (with Google Doc images).
+    Get path to step 9 MLT XML file (with Google Doc images).
 
     Args:
         base_name: Base filename without extension
 
     Returns:
-        Path to s10_with_google_doc_images_mlt.mlt
+        Path to s9_with_google_doc_images_mlt.mlt
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_10_MLT_XML_NAME, "mlt")
+    return _build_asset_path(base_name, STAGE_9_MLT_XML_NAME, "mlt")
 
 
 def get_full_res_cut_video_path(base_name: str) -> Path:
     """
-    Get path to full resolution cut video (Stage 11).
+    Get path to full resolution cut video (Stage 13).
 
     Args:
         base_name: Base filename without extension
 
     Returns:
-        Path to s11_full_res_cut.mp4
+        Path to s13_full_res_cut.mp4
     """
     base_folder = get_base_folder(base_name)
-    return base_folder / f"{STAGE_11_FULL_RES_CUT_NAME}.mp4"
+    return base_folder / f"{STAGE_13_FULL_RES_CUT_NAME}.mp4"
 
 
 def get_full_res_cut_mlt_path(base_name: str) -> Path:
     """
-    Get path to full resolution cut MLT XML file (Stage 11).
+    Get path to full resolution cut MLT XML file (Stage 13).
 
     Args:
         base_name: Base filename without extension
 
     Returns:
-        Path to s11_full_res_cut_mlt.mlt
+        Path to s13_full_res_cut_mlt.mlt
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_11_FULL_RES_CUT_MLT_NAME, "mlt")
+    return _build_asset_path(base_name, STAGE_13_FULL_RES_CUT_MLT_NAME, "mlt")
+
+
+def get_1080p_downsample_video_path(base_name: str) -> Path:
+    """
+    Get path to 1080p downsampled video (Step 10).
+
+    Args:
+        base_name: Base filename without extension
+
+    Returns:
+        Path to s10_1080p_downsample.mp4
+    """
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STAGE_10_1080P_DOWNSAMPLE_NAME, "mp4")
+
+
+def get_1080p_with_images_video_path(base_name: str) -> Path:
+    """
+    Get path to 1080p video with images (Step 11).
+
+    Args:
+        base_name: Base filename without extension
+
+    Returns:
+        Path to s11_1080p_with_images.mp4
+    """
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STAGE_11_1080P_WITH_IMAGES_NAME, "mp4")
+
+
+def get_1080p_with_images_mlt_path(base_name: str) -> Path:
+    """
+    Get path to 1080p with images MLT XML file (Step 11).
+
+    Args:
+        base_name: Base filename without extension
+
+    Returns:
+        Path to s11_1080p_with_images_mlt.mlt
+    """
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STAGE_11_1080P_WITH_IMAGES_MLT_NAME, "mlt")
 
 
 def get_full_res_with_images_video_path(base_name: str) -> Path:
     """
-    Get path to full resolution video with images (Stage 12).
+    Get path to full resolution video with images (Step 12 or Advanced Step 14).
 
     Args:
         base_name: Base filename without extension
 
     Returns:
-        Path to s12_full_res_with_images.mp4
+        Path to s12_full_res_with_images.mp4 (Step 12) or s14_full_res_with_images.mp4 (Advanced Step 14)
     """
     base_folder = get_base_folder(base_name)
-    return base_folder / f"{STAGE_12_FULL_RES_WITH_IMAGES_NAME}.mp4"
+    # Check if Step 12 file exists first (single-pass approach)
+    step_12_path = base_folder / f"{STAGE_12_FULL_RES_WITH_IMAGES_NAME}.mp4"
+    if step_12_path.exists():
+        return step_12_path
+    # Otherwise return Step 14 path (two-step approach)
+    return base_folder / f"{STAGE_14_FULL_RES_WITH_IMAGES_NAME}.mp4"
 
 
 def get_full_res_with_images_mlt_path(base_name: str) -> Path:
     """
-    Get path to full resolution with images MLT XML file (Stage 12).
+    Get path to full resolution with images MLT XML file (Step 12 or Advanced Step 14).
 
     Args:
         base_name: Base filename without extension
 
     Returns:
-        Path to s12_full_res_with_images_mlt.mlt
+        Path to s12_full_res_with_images_mlt.mlt (Step 12) or s14_full_res_with_images_mlt.mlt (Advanced Step 14)
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_12_FULL_RES_WITH_IMAGES_MLT_NAME, "mlt")
+    # Check if Step 12 file exists first (single-pass approach)
+    step_12_path = _build_asset_path(
+        base_name, STAGE_12_FULL_RES_WITH_IMAGES_MLT_NAME, "mlt"
+    )
+    if step_12_path.exists():
+        return step_12_path
+    # Otherwise return Step 14 path (two-step approach)
+    return _build_asset_path(base_name, STAGE_14_FULL_RES_WITH_IMAGES_MLT_NAME, "mlt")
+
+
+def reset_pipeline(base_name: str) -> None:
+    """
+    Reset the pipeline by deleting all generated files (files starting with 's').
+    This keeps the original video file but removes all intermediate and output files.
+
+    Args:
+        base_name: Base filename without extension
+
+    Raises:
+        FileNotFoundError: If the base folder doesn't exist
+    """
+    import glob
+    import os
+
+    base_folder = get_base_folder(base_name)
+
+    if not base_folder.exists():
+        raise FileNotFoundError(f"Base folder not found: {base_folder}")
+
+    # Find all files starting with 's' in the base folder
+    pattern = str(base_folder / "s*")
+    files_to_delete = glob.glob(pattern)
+
+    if not files_to_delete:
+        print_progress("No pipeline files found to delete")
+        return
+
+    print_progress(f"Found {len(files_to_delete)} pipeline files to delete:")
+    for file_path in sorted(files_to_delete):
+        file_name = Path(file_path).name
+        print(f"  - {file_name}")
+
+    # Delete each file
+    deleted_count = 0
+    for file_path in files_to_delete:
+        try:
+            file_path_obj = Path(file_path)
+            if file_path_obj.is_file():
+                os.remove(file_path)
+                deleted_count += 1
+            elif file_path_obj.is_dir():
+                # Skip directories (like google_doc folder might have subdirs)
+                print_progress(f"Skipping directory: {file_path_obj.name}")
+        except Exception as e:
+            print(f"Warning: Could not delete {file_path}: {e}")
+
+    print_progress(f"✓ Deleted {deleted_count} pipeline files")
+    print_progress("Pipeline reset complete. Original video file preserved.")

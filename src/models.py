@@ -17,31 +17,15 @@ class WordTimestamp(BaseModel):
     end: float = Field(..., description="End time in seconds")
 
 
-class TranscriptSegment(BaseModel):
-    """
-    Represents a segment of transcribed text with word-level timestamps.
-    """
-
-    text: str = Field(..., description="Full text of the segment")
-    start: float = Field(..., description="Start time in seconds")
-    end: float = Field(..., description="End time in seconds")
-    words: list[WordTimestamp] = Field(
-        default_factory=list, description="Word-level timestamps"
-    )
-
-
 class Transcript(BaseModel):
     """
     Complete transcript of an audio file.
     This is the canonical representation used throughout the system.
     """
 
-    segments: list[TranscriptSegment] = Field(
-        default_factory=list, description="List of transcript segments"
-    )
     sentences: list["LLMTranscriptSentence"] = Field(
         default_factory=list,
-        description="List of sentences extracted from segments for editing",
+        description="List of sentences with word-level timestamps",
     )
     language: Optional[str] = Field(None, description="Detected language code")
     duration: Optional[float] = Field(
@@ -51,12 +35,12 @@ class Transcript(BaseModel):
     @property
     def full_text(self) -> str:
         """Get the complete transcript text."""
-        return " ".join(segment.text for segment in self.segments)
+        return " ".join(sentence.sentence for sentence in self.sentences)
 
     @property
     def word_count(self) -> int:
-        """Get total word count across all segments."""
-        return sum(len(segment.words) for segment in self.segments)
+        """Get total word count across all sentences."""
+        return sum(len(sentence.words) for sentence in self.sentences)
 
 
 class LLMTranscriptSentence(BaseModel):

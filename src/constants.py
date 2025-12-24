@@ -19,30 +19,49 @@ load_dotenv(verbose=False)  # Also check CWD
 
 # Video processing settings
 LOW_RES_HEIGHT = 240  # 240p resolution
+HD_1080P_HEIGHT = 1920  # 1080p resolution for vertical video (1080x1920)
 
 # Stage-based file names (without prefix)
 # Format: s{stage_number}_{description}
+# New pipeline structure:
+# Step 1: Preprocess (rotate, downsample, extract audio)
 STAGE_1_DOWNSAMPLED_NAME = "s1_downsampled"
-STAGE_2_AUDIO_NAME = "s2_audio"
-STAGE_3_TRANSCRIPTION_NAME = "s3_transcription"
-STAGE_4_EDITING_DECISION_NAME = "s4_editing_decision"
-STAGE_4_EDITING_RESULT_NAME = "s4_editing_result"
+STAGE_1_AUDIO_NAME = "s1_audio"
+# Step 2: Get transcription
+STAGE_2_TRANSCRIPTION_NAME = "s2_transcription"
+# Step 3: Initial edit with LLM
+STAGE_3_EDITING_DECISION_NAME = "s3_editing_decision"
+STAGE_3_EDITING_RESULT_NAME = "s3_editing_result"
+# Step 4: Iterate sentence selection (no new files, edits s3_editing_result.json)
+# Step 5: Generate adjusted sentences
 STAGE_5_ADJUSTED_SENTENCES_NAME = "s5_adjusted_sentences"
+# Step 6: Iterate adjusted sentences (edits s5_adjusted_sentences.json, creates preview videos)
 STAGE_6_EDITED_VIDEO_NAME = "s6_edited"
 STAGE_6_DOWNSAMPLED_EDITED_NAME = "s6_downsampled_edited"
-STAGE_7_WITH_IMAGES_DOWNSAMPLED_NAME = "s7_with_images_downsampled"
+# Step 7: Parse Google Doc script
+STAGE_7_GOOGLE_DOC_SCRIPT_NAME = "s7_google_doc_script"
+# Step 8: Place Google Doc images
+STAGE_8_GOOGLE_DOC_IMAGE_PLACEMENTS_NAME = "s8_google_doc_image_placements"
+# Step 9: Create downsampled video with Google Doc images
+STAGE_9_WITH_GOOGLE_DOC_IMAGES_NAME = "s9_with_google_doc_images"
+STAGE_9_MLT_XML_NAME = "s9_with_google_doc_images_mlt"
+# Step 10: Downsample full res video to 1080p
+STAGE_10_1080P_DOWNSAMPLE_NAME = "s10_1080p_downsample"
+# Step 11: Create 1080p video with images (single pass on downsampled)
+STAGE_11_1080P_WITH_IMAGES_NAME = "s11_1080p_with_images"
+STAGE_11_1080P_WITH_IMAGES_MLT_NAME = "s11_1080p_with_images_mlt"
+# Step 12: Create full res video with images (single pass)
+STAGE_12_FULL_RES_WITH_IMAGES_NAME = "s12_full_res_with_images"
+STAGE_12_FULL_RES_WITH_IMAGES_MLT_NAME = "s12_full_res_with_images_mlt"
+# Advanced: Two-step approach
+STAGE_13_FULL_RES_CUT_NAME = "s13_full_res_cut"
+STAGE_13_FULL_RES_CUT_MLT_NAME = "s13_full_res_cut_mlt"
+STAGE_14_FULL_RES_WITH_IMAGES_NAME = "s14_full_res_with_images"
+STAGE_14_FULL_RES_WITH_IMAGES_MLT_NAME = "s14_full_res_with_images_mlt"
+# Legacy/shared resources
 STAGE_7_IMAGES_FOLDER_NAME = "images"
 STAGE_7_IMAGES_METADATA_NAME = "images_metadata"
 STAGE_7_MLT_XML_NAME = "s7_with_images_mlt"
-STAGE_8_GOOGLE_DOC_SCRIPT_NAME = "s8_google_doc_script"
-STAGE_9_GOOGLE_DOC_IMAGE_PLACEMENTS_NAME = "s9_google_doc_image_placements"
-STAGE_10_WITH_GOOGLE_DOC_IMAGES_NAME = "s10_with_google_doc_images"
-STAGE_10_MLT_XML_NAME = "s10_with_google_doc_images_mlt"
-# Full resolution stages
-STAGE_11_FULL_RES_CUT_NAME = "s11_full_res_cut"
-STAGE_11_FULL_RES_CUT_MLT_NAME = "s11_full_res_cut_mlt"
-STAGE_12_FULL_RES_WITH_IMAGES_NAME = "s12_full_res_with_images"
-STAGE_12_FULL_RES_WITH_IMAGES_MLT_NAME = "s12_full_res_with_images_mlt"
 
 # Audio settings
 AUDIO_SAMPLE_RATE = 16000  # 16kHz
@@ -54,22 +73,29 @@ VIDEO_CODEC = "libx264"
 VIDEO_PRESET = "fast"
 AUDIO_CODEC = "pcm_s16le"
 
-# Silence detection (future use)
+# Silence detection
 SILENCE_THRESHOLD_DB = -40
 SILENCE_MIN_DURATION = 0.5
+SILENCE_EXTENSION = 0.3  # Seconds to extend clips when silence was trimmed
+
+# Transcription sentence splitting
+TIME_BETWEEN_WORDS_THRESHOLD = (
+    1.0  # Seconds - split sentences if gap between words exceeds this
+)
 
 # Image overlay settings
-# Position: 20th-40th percentile height (centered vertically in upper portion, 1/3 from top)
-# Position: 30th-70th percentile width (centered horizontally)
-IMAGE_SAFE_ZONE_TOP_PERCENT = 0.20  # Start at 20% from top
-IMAGE_SAFE_ZONE_BOTTOM_PERCENT = 0.40  # End at 40% from top
-IMAGE_SAFE_ZONE_LEFT_PERCENT = 0.30  # Start at 30% from left
-IMAGE_SAFE_ZONE_RIGHT_PERCENT = 0.70  # End at 70% from left
+# Position: 10th-60th percentile height (centered vertically in upper portion, larger area)
+# Position: 20th-80th percentile width (centered horizontally, wider area)
+IMAGE_SAFE_ZONE_TOP_PERCENT = 0.30  # Start at 10% from top
+IMAGE_SAFE_ZONE_BOTTOM_PERCENT = 0.50  # End at 60% from top
+IMAGE_SAFE_ZONE_LEFT_PERCENT = 0.20  # Start at 20% from left
+IMAGE_SAFE_ZONE_RIGHT_PERCENT = 0.80  # End at 80% from left
 IMAGE_DEFAULT_WIDTH = 1024
 IMAGE_DEFAULT_HEIGHT = 1024
 
 # Environment variable names
 ENV_ELEVENLABS_API_KEY = "ELEVENLABS_API_KEY"
+ENV_DEEPGRAM_API_KEY = "DEEPGRAM_API_KEY"
 ENV_OPENROUTER_API_KEY = "OPENROUTER_API_KEY"
 
 # API endpoints

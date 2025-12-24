@@ -485,12 +485,12 @@ class MLTVideoService:
             images_metadata, sentence_timeline, props["fps"]
         )
 
-        # Add image producers (without filters)
+        # Add image producers with centering
         for i, img_meta in enumerate(images_metadata.images):
             img_path = images_folder / img_meta.filename
             timing = image_timings[i]
             if timing:
-                add_image_producer(root, i, img_path)
+                add_image_producer(root, i, img_path, safe_zone, center_image=True)
 
         # Create base playlists (background and video)
         create_base_playlists(root, total_timecode)
@@ -632,12 +632,12 @@ class MLTVideoService:
             image_placements, sentence_timeline, props["fps"]
         )
 
-        # Add image producers (without filters)
+        # Add image producers with centering
         for i, placement in enumerate(image_placements.placements):
             img_path = Path(placement.filepath)
             timing = image_timings[i]
             if timing:
-                add_image_producer(root, i, img_path)
+                add_image_producer(root, i, img_path, safe_zone, center_image=True)
 
         # Create base playlists (background and video)
         create_base_playlists(root, total_timecode)
@@ -916,7 +916,7 @@ class MLTVideoService:
             return output_path
 
         print_progress(f"Creating full resolution cut video from: {input_path.name}...")
-        print_progress(f"Cutting {len(adjusted_sentences.sentences)} segments")
+        print_progress(f"Cutting {len(adjusted_sentences.sentences)} sentences")
 
         # Create MLT XML file (saved for debugging)
         self._create_mlt_xml_for_cutting(
@@ -1035,10 +1035,19 @@ class MLTVideoService:
             ).text = f"Clip {i + 1}"
             ET.SubElement(chain, "property", {"name": "xml"}).text = "was here"
 
-        # Add image producers
+        # Calculate safe zone for image positioning (needed before adding image producers)
+        safe_zone = calculate_safe_zone(
+            props,
+            IMAGE_SAFE_ZONE_TOP_PERCENT,
+            IMAGE_SAFE_ZONE_BOTTOM_PERCENT,
+            IMAGE_SAFE_ZONE_LEFT_PERCENT,
+            IMAGE_SAFE_ZONE_RIGHT_PERCENT,
+        )
+
+        # Add image producers with centering
         for i, placement in enumerate(image_placements.placements):
             img_path = Path(placement.filepath)
-            add_image_producer(root, i, img_path)
+            add_image_producer(root, i, img_path, safe_zone, center_image=True)
 
         # Build sentence timeline for image timing (relative to cut video)
         sentence_timeline = self._build_sentence_timeline(adjusted_sentences)
@@ -1072,15 +1081,6 @@ class MLTVideoService:
         # Create image overlay playlist with blanks (V2)
         self._create_overlay_playlist_with_dynamic_duration(
             root, image_timings, props["fps"]
-        )
-
-        # Calculate safe zone for image positioning
-        safe_zone = calculate_safe_zone(
-            props,
-            IMAGE_SAFE_ZONE_TOP_PERCENT,
-            IMAGE_SAFE_ZONE_BOTTOM_PERCENT,
-            IMAGE_SAFE_ZONE_LEFT_PERCENT,
-            IMAGE_SAFE_ZONE_RIGHT_PERCENT,
         )
 
         # Create main tractor with tracks and transitions
@@ -1128,6 +1128,97 @@ class MLTVideoService:
             f"Created MLT XML file for cutting with images: {output_mlt_path}"
         )
 
+    def create_1080p_video_with_images(
+        self,
+        base_name: str,
+        adjusted_sentences: AdjustedSentences,
+        image_placements: GoogleDocImagePlacements,
+        force: bool = False,
+    ) -> Path:
+        """
+        Create 1080p video with cuts AND image overlays in a single MLT pass.
+        Operates on the 1080p downsampled video (s10_1080p_downsample.mp4).
+
+        Args:
+            base_name: Base filename without extension
+            adjusted_sentences: AdjustedSentences with timestamps
+            image_placements: Google Doc image placements with sentence associations
+            force: If True, regenerate even if file exists
+
+        Returns:
+            Path to 1080p video file with cuts and images
+
+        Raises:
+            FileNotFoundError: If 1080p video or images don't exist
+            RuntimeError: If melt command fails
+        """
+        from src.util import (
+            get_1080p_downsample_video_path,
+            get_1080p_with_images_video_path,
+            get_1080p_with_images_mlt_path,
+        )
+
+        input_path = get_1080p_downsample_video_path(base_name)
+        output_path = get_1080p_with_images_video_path(base_name)
+        mlt_xml_path = get_1080p_with_images_mlt_path(base_name)
+
+        if not input_path.exists():
+            raise FileNotFoundError(
+                f"1080p downsampled video not found: {input_path}. Run step 10 first."
+            )
+
+        if output_path.exists() and not force:
+            print_progress(
+                f"1080p video with cuts and images already exists: {output_path}"
+            )
+            return output_path
+
+        print_progress(f"Creating 1080p video from: {input_path.name}...")
+        print_progress(f"Cutting {len(adjusted_sentences.sentences)} sentences")
+        print_progress(f"Adding {len(image_placements.placements)} image overlays")
+
+        # Verify all image files exist
+        missing_images = []
+        for placement in image_placements.placements:
+            img_path = Path(placement.filepath)
+            if not img_path.exists():
+                missing_images.append(str(img_path))
+
+        if missing_images:
+            raise FileNotFoundError(
+                "Missing image files:\n"
+                + "\n".join(f"  - {img}" for img in missing_images)
+            )
+
+        # Create MLT XML file for cutting with images in one pass
+        self._create_mlt_xml_for_cutting_with_images(
+            input_path,
+            adjusted_sentences,
+            image_placements,
+            mlt_xml_path,
+        )
+
+        cmd = [
+            "melt",
+            str(mlt_xml_path),
+            "-consumer",
+            f"avformat:{output_path}",
+            "vcodec=libx264",
+            "acodec=aac",
+            "crf=23",
+            "preset=fast",
+            "pix_fmt=yuv420p",
+        ]
+
+        print_progress("Running melt command (1080p - cutting + images)...")
+        print_progress(f"Command: {' '.join(cmd)}")
+
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        print_progress(f"1080p video with cuts and images created: {output_path}")
+        print_progress(f"MLT XML saved for debugging: {mlt_xml_path}")
+        return output_path
+
     def create_full_res_video_with_images_single_pass(
         self,
         base_name: str,
@@ -1137,7 +1228,7 @@ class MLTVideoService:
     ) -> Path:
         """
         Create full resolution video with cuts AND image overlays in a single MLT pass.
-        Cuts the original video based on adjusted sentences and adds images in one operation.
+        Uses the 1080p downsampled video (from Step 10) as input for faster processing.
 
         Args:
             base_name: Base filename without extension
@@ -1149,16 +1240,18 @@ class MLTVideoService:
             Path to full resolution video file with cuts and images
 
         Raises:
-            FileNotFoundError: If original video or images don't exist
+            FileNotFoundError: If 1080p downsampled video or images don't exist
             RuntimeError: If melt command fails
         """
-        input_path = get_input_video_path(base_name)
+        from src.util import get_1080p_downsample_video_path
+
+        input_path = get_1080p_downsample_video_path(base_name)
         output_path = get_full_res_with_images_video_path(base_name)
         mlt_xml_path = get_full_res_with_images_mlt_path(base_name)
 
         if not input_path.exists():
             raise FileNotFoundError(
-                f"Original video not found: {input_path}. Cannot create full resolution video."
+                f"1080p downsampled video not found: {input_path}. Run step 10 first."
             )
 
         if output_path.exists() and not force:
@@ -1167,8 +1260,10 @@ class MLTVideoService:
             )
             return output_path
 
-        print_progress(f"Creating full resolution video from: {input_path.name}...")
-        print_progress(f"Cutting {len(adjusted_sentences.sentences)} segments")
+        print_progress(
+            f"Creating full resolution video from 1080p: {input_path.name}..."
+        )
+        print_progress(f"Cutting {len(adjusted_sentences.sentences)} sentences")
         print_progress(f"Adding {len(image_placements.placements)} image overlays")
 
         # Verify all image files exist

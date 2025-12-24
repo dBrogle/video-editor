@@ -251,6 +251,11 @@ class TimestampAdjustmentAgent:
                 print(
                     f"   ✓ Adjusted sentence {sentence_index} {field} to {new_value_float}s"
                 )
+                # Debug: Verify the change was applied
+                actual_value = getattr(sentence, field)
+                print(
+                    f"   OGDEAN: Verified {field} is now {actual_value} (expected {new_value_float})"
+                )
                 return adjusted_sentences
 
         raise ValueError(f"Sentence with index {sentence_index} not found")

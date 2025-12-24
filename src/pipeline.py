@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from src.services.video import VideoService, MLTVideoService
-from src.services.stt.elevenlabs import ElevenLabsSTTService
+from src.services.stt.deepgram import DeepgramSTTService
 from src.services.llm.openrouter import OpenRouterLLMService
 from src.services.local_saver import LocalSaverService
 from src.services.agents import (
@@ -21,85 +21,70 @@ from src.models import (
     GoogleDocScript,
     GoogleDocImagePlacements,
 )
-from src.constants import ASSETS_DIR
+from src.constants import ASSETS_DIR, HD_1080P_HEIGHT
 from src.util import (
     get_input_video_path,
     get_audio_path,
     print_progress,
     convert_editing_decision_to_result,
-    get_edited_video_path,
     get_stage_11_with_google_doc_images_path,
     get_google_doc_html_path,
     get_google_doc_images_folder,
+    get_1080p_downsample_video_path,
+    get_1080p_with_images_video_path,
 )
 
 
-def rotate_video(base_name: str, saver: LocalSaverService, force: bool = False) -> None:
+def preprocess_video(
+    base_name: str, saver: LocalSaverService, force: bool = False
+) -> None:
     """
-    Step 0: Rotate video if needed (check for rotation metadata and create .mp4).
+    Step 1: Preprocess video - rotate if needed, downsample, and extract audio.
 
-    This step checks if the source video has rotation metadata (common with iPhone videos)
-    and creates a properly oriented .mp4 file using MLT. The rotated video will be used
-    by all subsequent steps.
+    This step combines three operations:
+    1. Check for rotation metadata and create properly oriented .mp4 (common with iPhone videos)
+    2. Downsample video to low resolution for faster editing
+    3. Extract audio for transcription
 
     Args:
         base_name: Base filename without extension
         saver: Local saver service
-        force: If True, regenerate even if .mp4 exists
+        force: If True, regenerate even if files exist
     """
-    print_progress(f"Checking video rotation for: {base_name}")
+    print_progress(f"Preprocessing video: {base_name}")
 
+    # Step 1a: Rotate video if needed
+    print_progress("  - Checking video rotation...")
     mlt_service = MLTVideoService()
     output_path = mlt_service.rotate_video_if_needed(base_name, force=force)
+    print_progress(f"    Video ready: {output_path.name}")
 
-    print_progress(f"Video ready: {output_path.name}")
+    # Step 1b: Downsample video
+    if saver.downsampled_video_exists(base_name) and not force:
+        print_progress("  - Downsampled video already exists, skipping")
+    else:
+        print_progress("  - Downsampling video...")
+        input_path = get_input_video_path(base_name)
+        video_service = VideoService(ASSETS_DIR)
+        video_service.generate_proxy_video(input_path, force=force)
+        print_progress("    Downsampled video created")
 
+    # Step 1c: Extract audio
+    if saver.audio_exists(base_name) and not force:
+        print_progress("  - Audio file already exists, skipping")
+    else:
+        print_progress("  - Extracting audio...")
+        input_path = get_input_video_path(base_name)
+        video_service = VideoService(ASSETS_DIR)
+        video_service.extract_audio(input_path, force=force)
+        print_progress("    Audio extracted")
 
-def downsample_video(base_name: str, saver: LocalSaverService) -> None:
-    """
-    Step 1: Downsample video to low resolution.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service for checking existence
-    """
-    if saver.downsampled_video_exists(base_name):
-        print_progress("Downsampled video already exists, skipping")
-        return
-
-    print_progress(f"Downsampling video: {base_name}")
-    input_path = get_input_video_path(base_name)
-
-    video_service = VideoService(ASSETS_DIR)
-    video_service.generate_proxy_video(input_path, force=False)
-
-    print_progress("Downsampled video created")
-
-
-def extract_audio(base_name: str, saver: LocalSaverService) -> None:
-    """
-    Step 2: Extract audio from video.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service for checking existence
-    """
-    if saver.audio_exists(base_name):
-        print_progress("Audio file already exists, skipping")
-        return
-
-    print_progress(f"Extracting audio: {base_name}")
-    input_path = get_input_video_path(base_name)
-
-    video_service = VideoService(ASSETS_DIR)
-    video_service.extract_audio(input_path, force=False)
-
-    print_progress("Audio extracted")
+    print_progress("Video preprocessing complete")
 
 
 def get_transcription(base_name: str, saver: LocalSaverService) -> Transcript:
     """
-    Step 3: Get transcription from audio.
+    Step 2: Get transcription from audio.
 
     Args:
         base_name: Base filename without extension
@@ -115,7 +100,7 @@ def get_transcription(base_name: str, saver: LocalSaverService) -> Transcript:
     print_progress(f"Transcribing audio: {base_name}")
     audio_path = get_audio_path(base_name)
 
-    stt_service = ElevenLabsSTTService()
+    stt_service = DeepgramSTTService()
     transcript = stt_service.transcribe(audio_path)
 
     saver.save_transcription(base_name, transcript)
@@ -124,9 +109,9 @@ def get_transcription(base_name: str, saver: LocalSaverService) -> Transcript:
     return transcript
 
 
-def prompt_llm_for_editing(base_name: str, saver: LocalSaverService) -> None:
+def initial_edit_with_llm(base_name: str, saver: LocalSaverService) -> None:
     """
-    Step 4: Prompt LLM for editing decisions and create editable result.
+    Step 3: Initial edit with LLM - get editing decisions and create editable result.
 
     Args:
         base_name: Base filename without extension
@@ -152,13 +137,16 @@ def prompt_llm_for_editing(base_name: str, saver: LocalSaverService) -> None:
     print(f"Editable result saved to: {result_path.name}")
 
 
-def generate_adjusted_sentences(base_name: str, saver: LocalSaverService) -> None:
+def generate_adjusted_sentences(
+    base_name: str, saver: LocalSaverService, skip_silence_removal: bool = False
+) -> None:
     """
-    Step 5: Generate adjusted sentences with silence removal.
+    Step 5: Generate adjusted sentences with optional silence removal.
 
     Args:
         base_name: Base filename without extension
         saver: Local saver service
+        skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
     """
     if saver.adjusted_sentences_exist(base_name):
         print_progress("Adjusted sentences already exist, skipping")
@@ -171,80 +159,169 @@ def generate_adjusted_sentences(base_name: str, saver: LocalSaverService) -> Non
     transcript = saver.load_transcription(base_name)
     editing_result = saver.load_editing_result(base_name)
 
-    print_progress("Generating adjusted sentences with silence removal")
+    if skip_silence_removal:
+        print_progress("Generating adjusted sentences (skipping silence removal)")
+    else:
+        print_progress("Generating adjusted sentences with silence removal")
+
     video_service = VideoService(ASSETS_DIR)
     adjusted_sentences = video_service.generate_adjusted_sentences(
         base_name=base_name,
         transcript=transcript,
         editing_result=editing_result,
         use_downsampled=True,
+        skip_silence_removal=skip_silence_removal,
     )
 
     adjusted_path = saver.save_adjusted_sentences(base_name, adjusted_sentences)
     print_progress(f"Adjusted sentences saved to: {adjusted_path.name}")
 
 
-def create_edited_video(base_name: str, saver: LocalSaverService) -> None:
+def iterate_adjusted_sentences(
+    base_name: str, saver: LocalSaverService, skip_silence_removal: bool = False
+) -> None:
     """
-    Step 6: Create edited video using adjusted sentences.
+    Step 6: Iterate with LLM on adjusted sentences (silence removal and timestamp adjustments).
+
+    Interactive feedback loop for fine-tuning timestamps of selected sentences.
+    User can provide feedback and the LLM will adjust timestamps accordingly.
 
     Args:
         base_name: Base filename without extension
         saver: Local saver service
+        skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
     """
-    print_progress("Loading adjusted sentences")
-    adjusted_sentences = saver.load_adjusted_sentences(base_name)
+    print("\n" + "=" * 60)
+    print("TIMESTAMP ADJUSTMENT ITERATION")
+    print("Fine-tune the timestamps of selected sentences")
+    print("=" * 60)
 
-    print_progress("Creating edited video (downsampled)")
+    # Load necessary data
+    transcript = saver.load_transcription(base_name)
+    editing_result = saver.load_editing_result(base_name)
+
+    # Regenerate adjusted sentences from editing result
+    print("\n🔄 Generating adjusted sentences from sentence selection...")
     video_service = VideoService(ASSETS_DIR)
+    adjusted_sentences = video_service.generate_adjusted_sentences(
+        base_name=base_name,
+        transcript=transcript,
+        editing_result=editing_result,
+        use_downsampled=True,
+        skip_silence_removal=skip_silence_removal,
+    )
+    saver.save_adjusted_sentences(base_name, adjusted_sentences)
+
+    # Generate initial video
     edited_video_path = video_service.create_edited_video(
         base_name=base_name,
         adjusted_sentences=adjusted_sentences,
         use_downsampled=True,
-        force=True,  # Force regeneration for feedback loop
+        force=True,
     )
 
-    print_progress(f"Edited video created: {edited_video_path.name}")
+    print(f"\n📹 Video location: {edited_video_path}")
+    print("Please review the video to check timestamps and pacing.")
+
+    timestamp_agent = TimestampAdjustmentAgent()
+    iteration = 1
+    max_iterations = 10  # Safety limit
+
+    while iteration <= max_iterations:
+        print(f"\n--- Iteration {iteration} ---")
+
+        # Get user feedback
+        print("\n💬 How do the timestamps look?")
+        print("   (Type 'looks good', 'approve', or 'perfect' if satisfied)")
+        print(
+            "   (Or provide feedback like 'cut 2 seconds from the beginning' or 'reduce pause between sentence 3 and 4')"
+        )
+        user_feedback = input("\nYour feedback: ").strip()
+
+        if not user_feedback:
+            print("⚠ No feedback provided. Please try again.")
+            continue
+
+        # Reload adjusted sentences on each iteration
+        adjusted_sentences = saver.load_adjusted_sentences(base_name)
+
+        # Process feedback with timestamp adjustment agent
+        try:
+            print("\n🤖 Processing feedback with Timestamp Adjustment Agent...")
+            updated_sentences, is_approved = timestamp_agent.process_feedback(
+                adjusted_sentences=adjusted_sentences,
+                user_feedback=user_feedback,
+            )
+
+            if is_approved:
+                print("\n✅ Timestamps approved!")
+                # Save final adjusted sentences
+                saver.save_adjusted_sentences(base_name, updated_sentences)
+                break
+
+            # Save updated sentences
+            print("\n💾 Saving updated timestamps...")
+            saver.save_adjusted_sentences(base_name, updated_sentences)
+
+            # Regenerate the video with updated sentences
+            print("\n🎬 Regenerating video with timestamp adjustments...")
+            video_service = VideoService(ASSETS_DIR)
+            edited_video_path = video_service.create_edited_video(
+                base_name=base_name,
+                adjusted_sentences=updated_sentences,
+                use_downsampled=True,
+                force=True,
+            )
+
+            print(f"\n✓ Updated video created: {edited_video_path.name}")
+            print("Please review the updated video.")
+
+            iteration += 1
+
+        except Exception as e:
+            print(f"\n❌ Error processing feedback: {str(e)}")
+            print("Please try again with different feedback.")
+            continue
+
+    if iteration > max_iterations:
+        print(
+            f"\n⚠ Warning: Reached maximum iterations ({max_iterations}) for timestamp adjustment"
+        )
+        print("Proceeding with current state.")
+
+    print("\n" + "=" * 60)
+    print("Timestamp adjustment iteration complete!")
+    print("=" * 60)
 
 
-def feedback_loop_for_cut(base_name: str, saver: LocalSaverService) -> None:
+def iterate_sentence_selection(
+    base_name: str, saver: LocalSaverService, skip_silence_removal: bool = False
+) -> None:
     """
-    Step 7: Two-stage interactive feedback loop for refining the cut.
+    Step 4: Iterate with LLM on sentence selection.
 
-    Stage 1: Sentence Selection - User reviews which sentences to keep/remove (s4)
-    Stage 2: Timestamp Adjustment - User reviews and adjusts timestamps (s5)
+    Interactive feedback loop for reviewing which sentences to keep/remove.
+    User can provide feedback and the LLM will adjust the sentence selection accordingly.
 
     Args:
         base_name: Base filename without extension
         saver: Local saver service
+        skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
     """
     print("\n" + "=" * 60)
-    print("FEEDBACK LOOP - Two-Stage Cut Review")
-    print("=" * 60)
-
-    # Get the path to the downsampled edited video
-    edited_video_path = get_edited_video_path(base_name, use_downsampled=True)
-
-    # Load necessary data
-    transcript = saver.load_transcription(base_name)
-    from src.util import get_editing_result_path
-
-    editing_result_path = get_editing_result_path(base_name)
-
-    # =====================================================================
-    # STAGE 1: SENTENCE SELECTION (s4 - editing_result.json)
-    # =====================================================================
-    print("\n" + "=" * 60)
-    print("STAGE 1: SENTENCE SELECTION")
+    print("SENTENCE SELECTION ITERATION")
     print("Which sentences should be kept or removed?")
     print("=" * 60)
 
+    # Load necessary data
+    transcript = saver.load_transcription(base_name)
+
     sentence_agent = SentenceSelectionAgent()
-    stage1_iteration = 1
+    iteration = 1
     max_iterations = 10  # Safety limit
 
-    while stage1_iteration <= max_iterations:
-        print(f"\n--- Stage 1 - Iteration {stage1_iteration} ---")
+    while iteration <= max_iterations:
+        print(f"\n--- Iteration {iteration} ---")
 
         # Reload editing result on each iteration
         editing_result = saver.load_editing_result(base_name)
@@ -268,6 +345,7 @@ def feedback_loop_for_cut(base_name: str, saver: LocalSaverService) -> None:
             transcript=transcript,
             editing_result=editing_result,
             use_downsampled=True,
+            skip_silence_removal=skip_silence_removal,
         )
         saver.save_adjusted_sentences(base_name, adjusted_sentences)
 
@@ -300,10 +378,8 @@ def feedback_loop_for_cut(base_name: str, saver: LocalSaverService) -> None:
             )
 
             if is_approved:
-                print(
-                    "\n✅ Sentence selection approved! Moving to timestamp adjustment stage."
-                )
-                # Save final editing result from stage 1
+                print("\n✅ Sentence selection approved!")
+                # Save final editing result
                 saver.save_editing_result(base_name, updated_editing_result)
                 break
 
@@ -311,117 +387,21 @@ def feedback_loop_for_cut(base_name: str, saver: LocalSaverService) -> None:
             print("\n💾 Saving updated sentence selection...")
             saver.save_editing_result(base_name, updated_editing_result)
 
-            stage1_iteration += 1
+            iteration += 1
 
         except Exception as e:
             print(f"\n❌ Error processing feedback: {str(e)}")
             print("Please try again with different feedback.")
             continue
 
-    if stage1_iteration > max_iterations:
+    if iteration > max_iterations:
         print(
             f"\n⚠ Warning: Reached maximum iterations ({max_iterations}) for sentence selection"
         )
         print("Proceeding with current state.")
 
-    # =====================================================================
-    # STAGE 2: TIMESTAMP ADJUSTMENT (s5 - adjusted_sentences.json)
-    # =====================================================================
     print("\n" + "=" * 60)
-    print("STAGE 2: TIMESTAMP ADJUSTMENT")
-    print("Fine-tune the timestamps of selected sentences")
-    print("=" * 60)
-
-    # Regenerate adjusted sentences from approved editing result
-    print("\n🔄 Regenerating adjusted sentences from approved sentence selection...")
-    editing_result = saver.load_editing_result(base_name)
-    video_service = VideoService(ASSETS_DIR)
-    adjusted_sentences = video_service.generate_adjusted_sentences(
-        base_name=base_name,
-        transcript=transcript,
-        editing_result=editing_result,
-        use_downsampled=True,
-    )
-    saver.save_adjusted_sentences(base_name, adjusted_sentences)
-
-    # Regenerate video
-    edited_video_path = video_service.create_edited_video(
-        base_name=base_name,
-        adjusted_sentences=adjusted_sentences,
-        use_downsampled=True,
-        force=True,
-    )
-
-    print(f"\n📹 Video location: {edited_video_path}")
-    print("Please review the video to check timestamps and pacing.")
-
-    timestamp_agent = TimestampAdjustmentAgent()
-    stage2_iteration = 1
-
-    while stage2_iteration <= max_iterations:
-        print(f"\n--- Stage 2 - Iteration {stage2_iteration} ---")
-
-        # Get user feedback
-        print("\n💬 How do the timestamps look?")
-        print("   (Type 'looks good', 'approve', or 'perfect' if satisfied)")
-        print(
-            "   (Or provide feedback like 'cut 2 seconds from the beginning' or 'reduce pause between sentence 3 and 4')"
-        )
-        user_feedback = input("\nYour feedback: ").strip()
-
-        if not user_feedback:
-            print("⚠ No feedback provided. Please try again.")
-            continue
-
-        # Reload adjusted sentences on each iteration
-        adjusted_sentences = saver.load_adjusted_sentences(base_name)
-
-        # Process feedback with timestamp adjustment agent
-        try:
-            print("\n🤖 Processing feedback with Timestamp Adjustment Agent...")
-            updated_sentences, is_approved = timestamp_agent.process_feedback(
-                adjusted_sentences=adjusted_sentences,
-                user_feedback=user_feedback,
-            )
-
-            if is_approved:
-                print("\n✅ Timestamps approved! Cut refinement complete.")
-                # Save final adjusted sentences
-                saver.save_adjusted_sentences(base_name, updated_sentences)
-                break
-
-            # Save updated sentences
-            print("\n💾 Saving updated timestamps...")
-            saver.save_adjusted_sentences(base_name, updated_sentences)
-
-            # Regenerate the video with updated sentences
-            print("\n🎬 Regenerating video with timestamp adjustments...")
-            video_service = VideoService(ASSETS_DIR)
-            edited_video_path = video_service.create_edited_video(
-                base_name=base_name,
-                adjusted_sentences=updated_sentences,
-                use_downsampled=True,
-                force=True,
-            )
-
-            print(f"\n✓ Updated video created: {edited_video_path.name}")
-            print("Please review the updated video.")
-
-            stage2_iteration += 1
-
-        except Exception as e:
-            print(f"\n❌ Error processing feedback: {str(e)}")
-            print("Please try again with different feedback.")
-            continue
-
-    if stage2_iteration > max_iterations:
-        print(
-            f"\n⚠ Warning: Reached maximum iterations ({max_iterations}) for timestamp adjustment"
-        )
-        print("Proceeding with current state.")
-
-    print("\n" + "=" * 60)
-    print("Two-stage feedback loop complete!")
+    print("Sentence selection iteration complete!")
     print("=" * 60)
 
 
@@ -429,7 +409,7 @@ def parse_google_doc_script(
     base_name: str, saver: LocalSaverService
 ) -> GoogleDocScript:
     """
-    Step 8: Parse Google Doc HTML to extract text lines and associated images.
+    Step 7: Parse Google Doc HTML to extract text lines and associated images.
     Saves the parsed script to s8_google_doc_script.json.
 
     Args:
@@ -559,7 +539,7 @@ def place_google_doc_images(
     base_name: str, saver: LocalSaverService
 ) -> GoogleDocImagePlacements:
     """
-    Step 9: Place images from Google Doc script onto video timeline.
+    Step 8: Place images from Google Doc script onto video timeline.
 
     Args:
         base_name: Base filename without extension
@@ -634,7 +614,7 @@ def create_video_with_google_doc_images(
     base_name: str, saver: LocalSaverService, force: bool = False
 ) -> Path:
     """
-    Step 10: Create video with Google Doc image overlays.
+    Step 9: Create downsampled video with Google Doc image overlays.
 
     Args:
         base_name: Base filename without extension
@@ -739,14 +719,115 @@ def create_full_res_video_with_images(
     return video_path
 
 
+def downsample_to_1080p(base_name: str, force: bool = False) -> Path:
+    """
+    Step 10: Downsample the full resolution video to 1080x1920 (1080p vertical).
+
+    Args:
+        base_name: Base filename without extension
+        force: If True, regenerate even if file exists
+
+    Returns:
+        Path to 1080p downsampled video
+
+    Raises:
+        FileNotFoundError: If input video doesn't exist
+    """
+    output_path = get_1080p_downsample_video_path(base_name)
+
+    if output_path.exists() and not force:
+        print_progress(f"1080p downsampled video already exists: {output_path}")
+        return output_path
+
+    print_progress("Downsampling full resolution video to 1080x1920...")
+
+    # Get the full resolution video path
+    input_path = get_input_video_path(base_name)
+
+    # Use ffmpeg directly for 1080p downsampling
+    import subprocess
+
+    cmd = [
+        "ffmpeg",
+        "-i",
+        str(input_path),
+        "-vf",
+        f"scale=1080:{HD_1080P_HEIGHT}",  # 1080 width, 1920 height for vertical video
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "23",  # Good quality
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-y",  # Overwrite output file
+        str(output_path),
+    ]
+
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        print_progress(f"1080p downsampled video created: {output_path.name}")
+        return output_path
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"ffmpeg 1080p downsampling failed:\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"Exit code: {e.returncode}\n"
+            f"stderr: {e.stderr}"
+        ) from e
+
+
+def create_1080p_video_with_images(
+    base_name: str, saver: LocalSaverService, force: bool = False
+) -> Path:
+    """
+    Step 11: Create 1080p video with cuts AND images using MLT (operates on 1080p downsampled video).
+
+    Args:
+        base_name: Base filename without extension
+        saver: Local saver service
+        force: If True, regenerate even if file exists
+
+    Returns:
+        Path to 1080p video with cuts and images
+
+    Raises:
+        FileNotFoundError: If required files don't exist
+    """
+    output_path = get_1080p_with_images_video_path(base_name)
+
+    if output_path.exists() and not force:
+        print_progress(f"1080p video with images already exists: {output_path}")
+        return output_path
+
+    print_progress("Loading adjusted sentences and Google Doc image placements")
+    adjusted_sentences = saver.load_adjusted_sentences(base_name)
+    image_placements = saver.load_google_doc_image_placements(base_name)
+
+    print_progress("Creating 1080p video with cuts and images using MLT")
+    mlt_service = MLTVideoService()
+    video_path = mlt_service.create_1080p_video_with_images(
+        base_name=base_name,
+        adjusted_sentences=adjusted_sentences,
+        image_placements=image_placements,
+        force=force,
+    )
+
+    print_progress(f"1080p video with images created: {video_path.name}")
+    return video_path
+
+
 def create_full_res_video_single_pass(
     base_name: str, saver: LocalSaverService, force: bool = False
 ) -> Path:
     """
-    Step 11: Create full resolution video with cuts AND images in a single MLT pass.
+    Step 12: Create full resolution video with cuts AND images in a single MLT pass.
 
-    This is more efficient than the two-step approach (Steps 11+12) as it does
-    both cutting and image overlay in one rendering operation.
+    This is the final output - operates on the 1080p downsampled video (from Step 10)
+    with all edits and image overlays applied in one efficient rendering operation.
 
     Args:
         base_name: Base filename without extension
@@ -763,7 +844,9 @@ def create_full_res_video_single_pass(
     adjusted_sentences = saver.load_adjusted_sentences(base_name)
     image_placements = saver.load_google_doc_image_placements(base_name)
 
-    print_progress("Creating full resolution video with cuts and images (single pass)")
+    print_progress(
+        "Creating full resolution video with cuts and images (single pass from 1080p)"
+    )
     mlt_service = MLTVideoService()
     video_path = mlt_service.create_full_res_video_with_images_single_pass(
         base_name=base_name,
