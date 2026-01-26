@@ -19,7 +19,9 @@ from src.util import (
     get_audio_path,
     get_editing_decision_path,
     get_editing_result_path,
+    get_final_editing_result_path,
     get_adjusted_sentences_path,
+    get_final_adjusted_sentences_path,
     get_google_doc_html_path,
     get_google_doc_folder,
     get_google_doc_images_folder,
@@ -212,6 +214,53 @@ class LocalSaverService:
         """
         return get_editing_result_path(base_name).exists()
 
+    def save_final_editing_result(self, base_name: str, result: EditingResult) -> Path:
+        """
+        Save final editing result to JSON file (Step 4 approved).
+
+        Args:
+            base_name: Base filename without extension
+            result: EditingResult object to save
+
+        Returns:
+            Path to saved final editing result file
+        """
+        path = get_final_editing_result_path(base_name)
+        path.write_text(result.model_dump_json(indent=2))
+        return path
+
+    def load_final_editing_result(self, base_name: str) -> EditingResult:
+        """
+        Load final editing result from JSON file (Step 4 approved).
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            EditingResult object
+
+        Raises:
+            FileNotFoundError: If final editing result file doesn't exist
+        """
+        path = get_final_editing_result_path(base_name)
+        if not path.exists():
+            raise FileNotFoundError(f"Final editing result not found: {path}")
+
+        data = json.loads(path.read_text())
+        return EditingResult(**data)
+
+    def final_editing_result_exists(self, base_name: str) -> bool:
+        """
+        Check if final editing result file exists.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            True if final editing result exists, False otherwise
+        """
+        return get_final_editing_result_path(base_name).exists()
+
     def save_adjusted_sentences(
         self, base_name: str, adjusted_sentences: AdjustedSentences
     ) -> Path:
@@ -267,6 +316,82 @@ class LocalSaverService:
             True if adjusted sentences exists, False otherwise
         """
         return get_adjusted_sentences_path(base_name).exists()
+
+    def save_final_adjusted_sentences(
+        self, base_name: str, adjusted_sentences: AdjustedSentences
+    ) -> Path:
+        """
+        Save final adjusted sentences to JSON file (Step 6 approved).
+
+        Args:
+            base_name: Base filename without extension
+            adjusted_sentences: AdjustedSentences object to save
+
+        Returns:
+            Path to saved final adjusted sentences file
+        """
+        path = get_final_adjusted_sentences_path(base_name)
+        # Debug: Check what we're about to save
+        json_data = adjusted_sentences.model_dump_json(indent=2)
+        # Count the total number of words across all sentences, and display that
+        total_words = sum(
+            len(sentence.words) for sentence in adjusted_sentences.sentences
+        )
+        print(f"OGDEAN: Total words in final: {total_words}")
+        path.write_text(json_data)
+        return path
+
+    def load_final_adjusted_sentences(self, base_name: str) -> AdjustedSentences:
+        """
+        Load final adjusted sentences from JSON file (Step 6 approved).
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            AdjustedSentences object
+
+        Raises:
+            FileNotFoundError: If final adjusted sentences file doesn't exist
+        """
+        path = get_final_adjusted_sentences_path(base_name)
+        if not path.exists():
+            raise FileNotFoundError(f"Final adjusted sentences not found: {path}")
+
+        data = json.loads(path.read_text())
+        return AdjustedSentences(**data)
+
+    def final_adjusted_sentences_exist(self, base_name: str) -> bool:
+        """
+        Check if final adjusted sentences file exists.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            True if final adjusted sentences exists, False otherwise
+        """
+        return get_final_adjusted_sentences_path(base_name).exists()
+
+    def load_best_adjusted_sentences(self, base_name: str) -> AdjustedSentences:
+        """
+        Load the best available adjusted sentences - prefers final over working version.
+
+        This method first tries to load s6_final_adjusted_sentences.json (approved version),
+        and falls back to s5_adjusted_sentences.json (working version) if final doesn't exist.
+
+        Args:
+            base_name: Base filename without extension
+
+        Returns:
+            AdjustedSentences object from the best available source
+
+        Raises:
+            FileNotFoundError: If neither file exists
+        """
+        if self.final_adjusted_sentences_exist(base_name):
+            return self.load_final_adjusted_sentences(base_name)
+        return self.load_adjusted_sentences(base_name)
 
     def load_google_doc_html(self, base_name: str) -> str:
         """

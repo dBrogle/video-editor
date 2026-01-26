@@ -28,7 +28,7 @@ class OpenRouterLLMService(LLMService):
         model: OpenRouterModel | str = OpenRouterModel.GEMINI_25_FLASH,
         api_key: str | None = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000,
+        max_tokens: int = 5000,
     ):
         """
         Initialize OpenRouter LLM service.

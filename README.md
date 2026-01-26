@@ -16,17 +16,17 @@ Assets are organized into folders by video name:
 ```
 assets/
   IMG_2362/
-    IMG_2362.MOV              # Original video
+    IMG_2362.MOV              # Original video (VIDEO NAME MUST MATCH FOLDER NAME)
     s1_downsampled.mp4        # Step 1: Downsampled video (preprocessing)
-    s1_audio.wav              # Step 1: Extracted audio (preprocessing)
+    s1_audio.mp3              # Step 1: Extracted audio (preprocessing)
     s2_transcription.json     # Step 2: Transcription
     s3_editing_decision.json  # Step 3: Initial LLM editing decision
     s3_editing_result.json    # Step 3: Human-editable format
     s5_adjusted_sentences.json # Step 5: Timestamps with silence removed
     s6_downsampled_edited.mp4 # Step 6: Preview video (iteration)
     google_doc/               # Step 7-8: Google Doc script and images
-      IMG_2362.html           # Google Doc HTML export
-      images/                 # Images from Google Doc
+      IMG_2362.html           # Google Doc HTML export (HTML FILE NAME MUST MATCH FOLDER NAME)
+      images/                 # Images from Google Doc (this should be automatically set up)
         image_001.png
         image_002.png
     s7_google_doc_script.json # Step 7: Parsed Google Doc script
@@ -42,10 +42,13 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 brew install ffmpeg  # macOS
+brew install melt
 
 cp .env.example .env
 # Edit .env with your API keys
 ```
+
+I'm also pretty sure you need to install melt in terminal
 
 ## Migration (Existing Users)
 
@@ -218,61 +221,6 @@ The pipeline includes two interactive AI agents that help refine your video cut 
 
 - **Adjust timestamps** - Modify start/end times of any sentence (uses word-level timestamps)
 - **Approve** - Finalize the cut and proceed to the next step
-
-### Example Feedback
-
-#### Step 4 (Sentence Selection)
-```
-💬 Is the sentence selection good?
-Your feedback: Remove sentences 6 and 7, they're filler
-
-🤖 Agent thoughts: User wants to remove sentences 6 and 7 as they are filler content...
-   Executing: remove_sentence with {'sentence_index': '6'}
-   ✓ Marked sentence 6 to be REMOVED
-   Executing: remove_sentence with {'sentence_index': '7'}
-   ✓ Marked sentence 7 to be REMOVED
-
-🎬 Generating video with current sentence selection...
-```
-
-#### Step 6 (Timestamp Adjustment)
-```
-💬 How do the timestamps look?
-Your feedback: The pause between sentence 3 and 4 is too long
-
-🤖 Agent thoughts: User wants to reduce the gap between sentences 3 and 4...
-   Executing: adjust_timestamp with {'sentence_index': '4', 'field': 'adjusted_start', 'new_value': 9.2}
-   ✓ Adjusted sentence 4 adjusted_start to 9.2s
-
-🎬 Regenerating video with timestamp adjustments...
-```
-
-### Usage in Code
-
-```python
-from src.services.agents import SentenceSelectionAgent, TimestampAdjustmentAgent
-from src.services.local_saver import LocalSaverService
-
-# Step 4: Sentence Selection
-sentence_agent = SentenceSelectionAgent()
-saver = LocalSaverService()
-
-editing_result = saver.load_editing_result("video_name")
-user_feedback = "Remove sentence 5"
-updated_result, is_approved = sentence_agent.process_feedback(
-    editing_result=editing_result,
-    user_feedback=user_feedback,
-)
-
-# Step 6: Timestamp Adjustment
-timestamp_agent = TimestampAdjustmentAgent()
-adjusted_sentences = saver.load_adjusted_sentences("video_name")
-user_feedback = "Cut 1 second from the start"
-updated_sentences, is_approved = timestamp_agent.process_feedback(
-    adjusted_sentences=adjusted_sentences,
-    user_feedback=user_feedback,
-)
-```
 
 ## MLT Video Service
 

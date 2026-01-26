@@ -22,8 +22,6 @@ from src.pipeline import (
     downsample_to_1080p,
     create_1080p_video_with_images,
     create_full_res_video_single_pass,
-    create_full_res_cut_video,
-    create_full_res_video_with_images,
 )
 
 
@@ -50,11 +48,9 @@ def display_menu() -> list[int] | str:
     print("  9. Create downsampled video with Google Doc images")
     print(" 10. Downsample full res video to 1080p (1080x1920)")
     print(" 11. Create 1080p video with images (single pass)")
-    print("\n Advanced:")
+    print("\nAdvanced:")
     print(" 12. Create full resolution video with images (from 1080p, single pass)")
-    print(" 13. Cut full resolution video only (from original, no images)")
-    print(" 14. Add images to full resolution video (requires step 13)")
-    print("\n Utilities:")
+    print("\nUtilities:")
     print("  r. Reset pipeline (delete all generated files)")
     print("\nEnter step numbers separated by commas (e.g., 1,2,3)")
     print("or enter 0 to run all steps, or 'r' to reset.")
@@ -70,11 +66,11 @@ def display_menu() -> list[int] | str:
 
         try:
             steps = [int(s.strip()) for s in choice.split(",")]
-            valid_steps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+            valid_steps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
             if all(step in valid_steps for step in steps):
                 return sorted(set(steps))
             else:
-                print("Error: Please enter valid step numbers (0-14) or 'r'")
+                print("Error: Please enter valid step numbers (0-12) or 'r'")
         except ValueError:
             print(
                 "Error: Invalid input. Please enter numbers separated by commas or 'r'"
@@ -186,14 +182,6 @@ def run_pipeline(
         12: (
             "Create full resolution video with images (from 1080p, single pass)",
             lambda: create_full_res_video_single_pass(base_name, saver, force=False),
-        ),
-        13: (
-            "Cut full resolution video only (no images)",
-            lambda: create_full_res_cut_video(base_name, saver, force=False),
-        ),
-        14: (
-            "Add images to full resolution video (requires step 13)",
-            lambda: create_full_res_video_with_images(base_name, saver, force=False),
         ),
     }
 

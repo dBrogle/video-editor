@@ -22,7 +22,7 @@ You have two pieces of information:
 1. The Google Doc script with text lines and associated images
 2. The actual video sentences with their indexes
 
-Your task is to match the script's image placements to the actual video sentences and determine which sentence indexes each image should appear over.
+Your task is to match the script's image placements to the actual video sentences and determine which image (if any) should appear for each sentence.
 
 Google Doc Script (what was planned):
 {google_doc_script_json}
@@ -33,33 +33,42 @@ Actual Video Sentences (indexed):
 Instructions:
 - Match each image from the Google Doc script to the corresponding sentences in the actual video
 - The speaker may deviate slightly from the script, so use semantic matching (not exact text matching)
-- Determine which sentence indexes each image should be shown over based on when that topic is discussed
-- Images typically span 1-3 sentences, but can span more if the topic warrants it
+- For each sentence index, determine which image (if any) should be shown
+- Each sentence can have at most ONE image
+- If multiple images could fit a sentence, choose the most relevant one
+- If no image fits a sentence, set filepath to null
 - Consider the flow and avoid too many rapid image changes
-- Images should never overlap (each sentence should have at most one image)
-- If an image in the script doesn't match any video content, skip it
+- If an image in the script doesn't match any video content, don't place it anywhere
 
 Respond with a JSON object in this exact format:
 {{
     "thoughts": "Your analysis of how the script maps to the video and your placement decisions",
-    "placements": [
-        {{
-            "filepath": "image1.png",
-            "sentence_indexes": ["1", "2"]
+    "placements": {{
+        "1": {{
+            "filepath": "image1.png"
         }},
-        {{
-            "filepath": "image2.png",
-            "sentence_indexes": ["5", "6", "7"]
+        "2": {{
+            "filepath": "image1.png"
+        }},
+        "3": {{
+            "filepath": null
+        }},
+        "4": {{
+            "filepath": "image2.png"
         }}
-    ]
+    }}
 }}
 
 Important:
-- sentence_indexes should be strings (e.g., "1", "2", not 1, 2)
-- Only include images that have a clear match in the video
-- Images should never overlap - each sentence should appear in at most one placement
-- Placements should be in chronological order (earlier sentence indexes first)
+- The placements object MUST be keyed by sentence index (as strings: "1", "2", "3", etc.)
+- Each value should be an object with a "filepath" field
+- The filepath should be either a string (image filename like "image1.png") or null (no image)
+- You MUST include an entry for EVERY sentence index that exists in the video
 - The filepath should match the image filename from the Google Doc script (e.g., "image1.png", "image2.png")
+- Each sentence can only have ONE image. If multiple images could fit, choose the most relevant one.
+- The same image can appear on multiple consecutive sentences if appropriate
+
+Remember, your output MUST be valid json, so your output should start with ```json and end with a closing bracket.
 """
 
 
@@ -134,37 +143,99 @@ class GoogleDocImagePlacer:
             thoughts = response_data.get("thoughts", "")
             print(f"\n🤖 Agent thoughts: {thoughts}\n")
 
-            # Convert to GoogleDocImagePlacement objects with full paths
+            # Parse the new sentence-index-keyed format
+            # placements is now a dict like: {"1": {"filepath": "image1.png"}, "2": {"filepath": null}, ...}
+            placements_dict = response_data["placements"]
+
+            # Group consecutive sentences with the same image into single placements
+            # This converts the sentence-keyed format back to the list-based format expected by the pipeline
             placements = []
-            for placement_data in response_data["placements"]:
-                # Get the image filename from the response
-                image_filename = placement_data["filepath"]
+            current_image = None
+            current_sentence_indexes = []
 
-                # Build full path to the image
-                full_image_path = google_doc_images_folder / image_filename
+            # Get all sentence indexes in order
+            all_sentence_indexes = sorted(placements_dict.keys(), key=int)
 
-                # Verify image exists
-                if not full_image_path.exists():
+            for sentence_idx in all_sentence_indexes:
+                placement_info = placements_dict[sentence_idx]
+                image_filename = placement_info.get("filepath")
+
+                # If this sentence has an image
+                if image_filename is not None:
+                    # If it's a different image than we're currently tracking
+                    if image_filename != current_image:
+                        # Save the previous placement if it exists
+                        if current_image is not None and current_sentence_indexes:
+                            full_image_path = google_doc_images_folder / current_image
+                            if full_image_path.exists():
+                                placement = GoogleDocImagePlacement(
+                                    filepath=str(full_image_path),
+                                    sentence_indexes=current_sentence_indexes,
+                                )
+                                placements.append(placement)
+
+                                sentence_range = (
+                                    f"{current_sentence_indexes[0]}-{current_sentence_indexes[-1]}"
+                                    if len(current_sentence_indexes) > 1
+                                    else current_sentence_indexes[0]
+                                )
+                                print(
+                                    f"   ✓ Placed {current_image}: sentences {sentence_range}"
+                                )
+                            else:
+                                print(
+                                    f"   ⚠ Warning: Image not found: {full_image_path}"
+                                )
+
+                        # Start tracking the new image
+                        current_image = image_filename
+                        current_sentence_indexes = [sentence_idx]
+                    else:
+                        # Same image, add to current group
+                        current_sentence_indexes.append(sentence_idx)
+                else:
+                    # No image for this sentence, save any current placement
+                    if current_image is not None and current_sentence_indexes:
+                        full_image_path = google_doc_images_folder / current_image
+                        if full_image_path.exists():
+                            placement = GoogleDocImagePlacement(
+                                filepath=str(full_image_path),
+                                sentence_indexes=current_sentence_indexes,
+                            )
+                            placements.append(placement)
+
+                            sentence_range = (
+                                f"{current_sentence_indexes[0]}-{current_sentence_indexes[-1]}"
+                                if len(current_sentence_indexes) > 1
+                                else current_sentence_indexes[0]
+                            )
+                            print(
+                                f"   ✓ Placed {current_image}: sentences {sentence_range}"
+                            )
+                        else:
+                            print(f"   ⚠ Warning: Image not found: {full_image_path}")
+
+                        current_image = None
+                        current_sentence_indexes = []
+
+            # Don't forget the last placement if we were tracking one
+            if current_image is not None and current_sentence_indexes:
+                full_image_path = google_doc_images_folder / current_image
+                if full_image_path.exists():
+                    placement = GoogleDocImagePlacement(
+                        filepath=str(full_image_path),
+                        sentence_indexes=current_sentence_indexes,
+                    )
+                    placements.append(placement)
+
+                    sentence_range = (
+                        f"{current_sentence_indexes[0]}-{current_sentence_indexes[-1]}"
+                        if len(current_sentence_indexes) > 1
+                        else current_sentence_indexes[0]
+                    )
+                    print(f"   ✓ Placed {current_image}: sentences {sentence_range}")
+                else:
                     print(f"   ⚠ Warning: Image not found: {full_image_path}")
-                    continue
-
-                # Get sentence indexes (ensure they are strings)
-                sentence_indexes = [
-                    str(idx) for idx in placement_data["sentence_indexes"]
-                ]
-
-                placement = GoogleDocImagePlacement(
-                    filepath=str(full_image_path),
-                    sentence_indexes=sentence_indexes,
-                )
-                placements.append(placement)
-
-                sentence_range = (
-                    f"{sentence_indexes[0]}-{sentence_indexes[-1]}"
-                    if len(sentence_indexes) > 1
-                    else sentence_indexes[0]
-                )
-                print(f"   ✓ Placed {image_filename}: sentences {sentence_range}")
 
             return GoogleDocImagePlacements(placements=placements)
 

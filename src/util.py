@@ -13,7 +13,11 @@ from src.constants import (
     STAGE_2_TRANSCRIPTION_NAME,
     STAGE_3_EDITING_DECISION_NAME,
     STAGE_3_EDITING_RESULT_NAME,
+    STAGE_4_SENTENCE_SELECTION_VIDEO_NAME,
+    STAGE_4_FINAL_EDITING_RESULT_NAME,
     STAGE_5_ADJUSTED_SENTENCES_NAME,
+    STAGE_6_ADJUSTED_SENTENCES_VIDEO_NAME,
+    STAGE_6_FINAL_ADJUSTED_SENTENCES_NAME,
     STAGE_6_EDITED_VIDEO_NAME,
     STAGE_6_DOWNSAMPLED_EDITED_NAME,
     STAGE_7_GOOGLE_DOC_SCRIPT_NAME,
@@ -230,7 +234,7 @@ def get_audio_path(base_name: str) -> Path:
         Full path to audio file
     """
     _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_1_AUDIO_NAME, "wav")
+    return _build_asset_path(base_name, STAGE_1_AUDIO_NAME, "mp3")
 
 
 def get_transcription_path(base_name: str) -> Path:
@@ -263,21 +267,96 @@ def get_editing_decision_path(base_name: str) -> Path:
 
 def get_editing_result_path(base_name: str) -> Path:
     """
-    Get path to editing result JSON file (human-editable format) (Step 3/4).
+    Get path to editing result JSON file (human-editable format) (Step 3 initial).
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
 
     Returns:
-        Full path to editing result file
+        Full path to editing result file (s3_editing_result.json)
     """
     _ensure_asset_folder(base_name)
     return _build_asset_path(base_name, STAGE_3_EDITING_RESULT_NAME, "json")
 
 
+def get_sentence_selection_video_path(base_name: str) -> Path:
+    """
+    Get path to sentence selection iteration video file (Step 4 preview).
+
+    Args:
+        base_name: Base filename without extension (e.g., 'IMG_0901')
+
+    Returns:
+        Full path to sentence selection video file (s4_sentence_selection_video.mp4)
+    """
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STAGE_4_SENTENCE_SELECTION_VIDEO_NAME, "mp4")
+
+
+def get_final_editing_result_path(base_name: str) -> Path:
+    """
+    Get path to final editing result JSON file (Step 4 approved).
+
+    Args:
+        base_name: Base filename without extension (e.g., 'IMG_0901')
+
+    Returns:
+        Full path to final editing result file (s4_final_editing_result.json)
+    """
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STAGE_4_FINAL_EDITING_RESULT_NAME, "json")
+
+
+def get_adjusted_sentences_path(base_name: str) -> Path:
+    """
+    Get path to adjusted sentences JSON file (Step 5 initial).
+
+    Args:
+        base_name: Base filename without extension (e.g., 'IMG_0901')
+
+    Returns:
+        Full path to adjusted sentences file (s5_adjusted_sentences.json)
+    """
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STAGE_5_ADJUSTED_SENTENCES_NAME, "json")
+
+
+def get_adjusted_sentences_video_path(base_name: str) -> Path:
+    """
+    Get path to adjusted sentences iteration video file (Step 6 preview).
+
+    Args:
+        base_name: Base filename without extension (e.g., 'IMG_0901')
+
+    Returns:
+        Full path to adjusted sentences video file (s6_adjusted_sentences_video.mp4)
+    """
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STAGE_6_ADJUSTED_SENTENCES_VIDEO_NAME, "mp4")
+
+
+def get_final_adjusted_sentences_path(base_name: str) -> Path:
+    """
+    Get path to final adjusted sentences JSON file (Step 6 approved).
+
+    Args:
+        base_name: Base filename without extension (e.g., 'IMG_0901')
+
+    Returns:
+        Full path to final adjusted sentences file (s6_final_adjusted_sentences.json)
+    """
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STAGE_6_FINAL_ADJUSTED_SENTENCES_NAME, "json")
+
+
 def get_edited_video_path(base_name: str, use_downsampled: bool = True) -> Path:
     """
-    Get path to edited video file (Step 6 - iteration preview).
+    Get path to edited video file (legacy/generic method).
+
+    This is kept for backward compatibility with video_service.py.
+    For iteration-specific videos, use:
+    - get_sentence_selection_video_path() for step 4
+    - get_adjusted_sentences_video_path() for step 6
 
     Args:
         base_name: Base filename without extension (e.g., 'IMG_0901')
@@ -295,18 +374,33 @@ def get_edited_video_path(base_name: str, use_downsampled: bool = True) -> Path:
     return _build_asset_path(base_name, stage_name, "mp4")
 
 
-def get_adjusted_sentences_path(base_name: str) -> Path:
+def get_best_edited_video_path(base_name: str) -> Path:
     """
-    Get path to adjusted sentences JSON file (silence-trimmed timestamps) (Step 5/6).
+    Get path to the final edited video file from step 6.
+
+    This returns the path to s6_adjusted_sentences_video.mp4, which is the
+    edited video output from step 6 (iterate adjusted sentences).
+
+    This should be used by downstream stages (7+) that need the final edited video.
 
     Args:
-        base_name: Base filename without extension (e.g., 'IMG_0901')
+        base_name: Base filename without extension
 
     Returns:
-        Full path to adjusted sentences file
+        Path to s6_adjusted_sentences_video.mp4
+
+    Raises:
+        FileNotFoundError: If edited video doesn't exist
     """
-    _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_5_ADJUSTED_SENTENCES_NAME, "json")
+    adjusted_video_path = get_adjusted_sentences_video_path(base_name)
+
+    if not adjusted_video_path.exists():
+        raise FileNotFoundError(
+            f"Edited video not found: {adjusted_video_path}\n"
+            f"Please run step 6 (iterate adjusted sentences) first to generate the edited video."
+        )
+
+    return adjusted_video_path
 
 
 def convert_editing_decision_to_result(
@@ -366,20 +460,6 @@ def get_images_metadata_path(base_name: str) -> Path:
     """
     images_folder = get_images_folder(base_name)
     return images_folder / f"{STAGE_7_IMAGES_METADATA_NAME}.json"
-
-
-def get_stage_7_with_images_path(base_name: str) -> Path:
-    """
-    Get path to stage 7 video with images (downsampled).
-
-    Args:
-        base_name: Base filename without extension
-
-    Returns:
-        Path to s7_with_images_downsampled.mp4
-    """
-    base_folder = get_base_folder(base_name)
-    return base_folder / f"{STAGE_7_WITH_IMAGES_DOWNSAMPLED_NAME}.mp4"
 
 
 def create_images_folder(base_name: str) -> Path:
@@ -446,20 +526,6 @@ def load_images_metadata(base_name: str) -> "ImagesMetadataFile":
         data = json.load(f)
 
     return ImagesMetadataFile(**data)
-
-
-def get_stage_7_mlt_xml_path(base_name: str) -> Path:
-    """
-    Get path to stage 7 MLT XML file (with images).
-
-    Args:
-        base_name: Base filename without extension
-
-    Returns:
-        Path to s7_with_images_mlt.mlt
-    """
-    _ensure_asset_folder(base_name)
-    return _build_asset_path(base_name, STAGE_7_MLT_XML_NAME, "mlt")
 
 
 # ============================================================================

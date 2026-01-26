@@ -32,6 +32,8 @@ from src.util import (
     get_google_doc_images_folder,
     get_1080p_downsample_video_path,
     get_1080p_with_images_video_path,
+    get_sentence_selection_video_path,
+    get_adjusted_sentences_video_path,
 )
 
 
@@ -109,14 +111,21 @@ def get_transcription(base_name: str, saver: LocalSaverService) -> Transcript:
     return transcript
 
 
-def initial_edit_with_llm(base_name: str, saver: LocalSaverService) -> None:
+def initial_edit_with_llm(base_name: str, saver: LocalSaverService, force: bool = False) -> None:
     """
     Step 3: Initial edit with LLM - get editing decisions and create editable result.
 
     Args:
         base_name: Base filename without extension
         saver: Local saver service
+        force: If True, regenerate even if editing decision exists
     """
+    # Check if editing decision already exists
+    if saver.editing_decision_exists(base_name) and not force:
+        print_progress("Editing decision already exists, skipping")
+        print_progress("If you want to regenerate, delete s3_editing_decision.json and s3_editing_result.json and run again")
+        return
+
     print_progress("Loading transcript")
     transcript = saver.load_transcription(base_name)
 
@@ -143,6 +152,9 @@ def generate_adjusted_sentences(
     """
     Step 5: Generate adjusted sentences with optional silence removal.
 
+    Reads from: s4_final_editing_result.json or s3_editing_result.json
+    Saves to: s5_adjusted_sentences.json (initial version, can be iterated on in step 6)
+
     Args:
         base_name: Base filename without extension
         saver: Local saver service
@@ -151,13 +163,15 @@ def generate_adjusted_sentences(
     if saver.adjusted_sentences_exist(base_name):
         print_progress("Adjusted sentences already exist, skipping")
         print_progress(
-            "If you want to regenerate, delete the adjusted sentences file and run again"
+            "If you want to regenerate, delete s5_adjusted_sentences.json and run again"
         )
         return
 
     print_progress("Loading transcript and editing result")
     transcript = saver.load_transcription(base_name)
-    editing_result = saver.load_editing_result(base_name)
+
+    editing_result = saver.load_final_editing_result(base_name)
+    print_progress("Using final sentence selection from step 4")
 
     if skip_silence_removal:
         print_progress("Generating adjusted sentences (skipping silence removal)")
@@ -186,11 +200,23 @@ def iterate_adjusted_sentences(
     Interactive feedback loop for fine-tuning timestamps of selected sentences.
     User can provide feedback and the LLM will adjust timestamps accordingly.
 
+    Reads from: s4_final_editing_result.json or s3_editing_result.json
+    Generates: s5_adjusted_sentences.json (initial/working), s6_adjusted_sentences_video.mp4 (for preview)
+    Saves to: s6_final_adjusted_sentences.json (when approved)
+
     Args:
         base_name: Base filename without extension
         saver: Local saver service
         skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
     """
+    # Check if already approved
+    if saver.final_adjusted_sentences_exist(base_name):
+        print_progress("Final adjusted sentences already exist, skipping iteration")
+        print_progress(
+            "If you want to re-iterate, delete s6_final_adjusted_sentences.json and run again"
+        )
+        return
+
     print("\n" + "=" * 60)
     print("TIMESTAMP ADJUSTMENT ITERATION")
     print("Fine-tune the timestamps of selected sentences")
@@ -198,7 +224,14 @@ def iterate_adjusted_sentences(
 
     # Load necessary data
     transcript = saver.load_transcription(base_name)
-    editing_result = saver.load_editing_result(base_name)
+
+    # Try to load final editing result first, fall back to working copy
+    if saver.final_editing_result_exists(base_name):
+        editing_result = saver.load_final_editing_result(base_name)
+        print_progress("Using final sentence selection from step 4")
+    else:
+        editing_result = saver.load_editing_result(base_name)
+        print_progress("Using working sentence selection from step 3")
 
     # Regenerate adjusted sentences from editing result
     print("\n🔄 Generating adjusted sentences from sentence selection...")
@@ -212,15 +245,17 @@ def iterate_adjusted_sentences(
     )
     saver.save_adjusted_sentences(base_name, adjusted_sentences)
 
-    # Generate initial video
-    edited_video_path = video_service.create_edited_video(
+    # Generate initial video to s6_adjusted_sentences_video.mp4
+    adjusted_sentences_video_path = get_adjusted_sentences_video_path(base_name)
+    video_service.create_edited_video(
         base_name=base_name,
         adjusted_sentences=adjusted_sentences,
         use_downsampled=True,
         force=True,
+        output_path=adjusted_sentences_video_path,
     )
 
-    print(f"\n📹 Video location: {edited_video_path}")
+    print(f"\n📹 Video location: {adjusted_sentences_video_path}")
     print("Please review the video to check timestamps and pacing.")
 
     timestamp_agent = TimestampAdjustmentAgent()
@@ -242,7 +277,7 @@ def iterate_adjusted_sentences(
             print("⚠ No feedback provided. Please try again.")
             continue
 
-        # Reload adjusted sentences on each iteration
+        # Reload adjusted sentences on each iteration (from s5_adjusted_sentences.json)
         adjusted_sentences = saver.load_adjusted_sentences(base_name)
 
         # Process feedback with timestamp adjustment agent
@@ -255,25 +290,31 @@ def iterate_adjusted_sentences(
 
             if is_approved:
                 print("\n✅ Timestamps approved!")
-                # Save final adjusted sentences
+                # Save to s5_adjusted_sentences.json (update working copy)
                 saver.save_adjusted_sentences(base_name, updated_sentences)
+                # Save to s6_final_adjusted_sentences.json (final approved copy)
+                final_path = saver.save_final_adjusted_sentences(
+                    base_name, updated_sentences
+                )
+                print(f"✓ Final timestamps saved to: {final_path.name}")
                 break
 
-            # Save updated sentences
+            # Save updated sentences back to s5_adjusted_sentences.json
             print("\n💾 Saving updated timestamps...")
             saver.save_adjusted_sentences(base_name, updated_sentences)
 
             # Regenerate the video with updated sentences
             print("\n🎬 Regenerating video with timestamp adjustments...")
             video_service = VideoService(ASSETS_DIR)
-            edited_video_path = video_service.create_edited_video(
+            video_service.create_edited_video(
                 base_name=base_name,
                 adjusted_sentences=updated_sentences,
                 use_downsampled=True,
                 force=True,
+                output_path=adjusted_sentences_video_path,
             )
 
-            print(f"\n✓ Updated video created: {edited_video_path.name}")
+            print(f"\n✓ Updated video created: {adjusted_sentences_video_path.name}")
             print("Please review the updated video.")
 
             iteration += 1
@@ -303,11 +344,23 @@ def iterate_sentence_selection(
     Interactive feedback loop for reviewing which sentences to keep/remove.
     User can provide feedback and the LLM will adjust the sentence selection accordingly.
 
+    Reads from: s3_editing_result.json (initial)
+    Generates: s4_sentence_selection_video.mp4 (for iteration preview)
+    Saves to: s4_final_editing_result.json (when approved)
+
     Args:
         base_name: Base filename without extension
         saver: Local saver service
         skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
     """
+    # Check if already approved
+    if saver.final_editing_result_exists(base_name):
+        print_progress("Final sentence selection already exists, skipping iteration")
+        print_progress(
+            "If you want to re-iterate, delete s4_final_editing_result.json and run again"
+        )
+        return
+
     print("\n" + "=" * 60)
     print("SENTENCE SELECTION ITERATION")
     print("Which sentences should be kept or removed?")
@@ -323,7 +376,7 @@ def iterate_sentence_selection(
     while iteration <= max_iterations:
         print(f"\n--- Iteration {iteration} ---")
 
-        # Reload editing result on each iteration
+        # Reload editing result on each iteration (from s3_editing_result.json)
         editing_result = saver.load_editing_result(base_name)
 
         # Show current sentence status
@@ -347,16 +400,18 @@ def iterate_sentence_selection(
             use_downsampled=True,
             skip_silence_removal=skip_silence_removal,
         )
-        saver.save_adjusted_sentences(base_name, adjusted_sentences)
 
-        edited_video_path = video_service.create_edited_video(
+        # Generate video to s4_sentence_selection_video.mp4
+        sentence_selection_video_path = get_sentence_selection_video_path(base_name)
+        video_service.create_edited_video(
             base_name=base_name,
             adjusted_sentences=adjusted_sentences,
             use_downsampled=True,
             force=True,
+            output_path=sentence_selection_video_path,
         )
 
-        print(f"\n📹 Video location: {edited_video_path}")
+        print(f"\n📹 Video location: {sentence_selection_video_path}")
         print("Please review the video to see which sentences are included.")
 
         # Get user feedback
@@ -379,11 +434,16 @@ def iterate_sentence_selection(
 
             if is_approved:
                 print("\n✅ Sentence selection approved!")
-                # Save final editing result
+                # Save to s3_editing_result.json (update working copy)
                 saver.save_editing_result(base_name, updated_editing_result)
+                # Save to s4_final_editing_result.json (final approved copy)
+                final_path = saver.save_final_editing_result(
+                    base_name, updated_editing_result
+                )
+                print(f"✓ Final selection saved to: {final_path.name}")
                 break
 
-            # Save updated editing result
+            # Save updated editing result back to s3_editing_result.json
             print("\n💾 Saving updated sentence selection...")
             saver.save_editing_result(base_name, updated_editing_result)
 
@@ -572,7 +632,7 @@ def place_google_doc_images(
     # Load required data
     print_progress("Loading Google Doc script and adjusted sentences")
     google_doc_script = saver.load_google_doc_script(base_name)
-    adjusted_sentences = saver.load_adjusted_sentences(base_name)
+    adjusted_sentences = saver.load_best_adjusted_sentences(base_name)
 
     # Get Google Doc images folder
     google_doc_images_folder = get_google_doc_images_folder(base_name)
@@ -633,7 +693,7 @@ def create_video_with_google_doc_images(
         return output_path
 
     print_progress("Loading adjusted sentences and Google Doc image placements")
-    adjusted_sentences = saver.load_adjusted_sentences(base_name)
+    adjusted_sentences = saver.load_best_adjusted_sentences(base_name)
     image_placements = saver.load_google_doc_image_placements(base_name)
 
     print_progress("Creating video with Google Doc image overlays using MLT")
@@ -646,76 +706,6 @@ def create_video_with_google_doc_images(
     )
 
     print_progress(f"Video with Google Doc images created: {video_path.name}")
-    return video_path
-
-
-def create_full_res_cut_video(
-    base_name: str, saver: LocalSaverService, force: bool = False
-) -> Path:
-    """
-    Step 11: Cut full resolution video using MLT based on adjusted sentences.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        force: If True, regenerate even if file exists
-
-    Returns:
-        Path to full resolution cut video
-
-    Raises:
-        FileNotFoundError: If required files don't exist
-    """
-    print_progress("Loading adjusted sentences")
-    adjusted_sentences = saver.load_adjusted_sentences(base_name)
-
-    print_progress("Creating full resolution cut video using MLT")
-    mlt_service = MLTVideoService()
-    video_path = mlt_service.create_full_res_cut_video(
-        base_name=base_name,
-        adjusted_sentences=adjusted_sentences,
-        force=force,
-    )
-
-    print_progress(f"Full resolution cut video created: {video_path.name}")
-    return video_path
-
-
-def create_full_res_video_with_images(
-    base_name: str, saver: LocalSaverService, force: bool = False
-) -> Path:
-    """
-    Step 12: Create full resolution video with Google Doc image overlays using MLT.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        force: If True, regenerate even if file exists
-
-    Returns:
-        Path to full resolution video with Google Doc images
-
-    Raises:
-        FileNotFoundError: If required files don't exist
-    """
-    print_progress("Loading adjusted sentences and Google Doc image placements")
-    adjusted_sentences = saver.load_adjusted_sentences(base_name)
-    image_placements = saver.load_google_doc_image_placements(base_name)
-
-    print_progress(
-        "Creating full resolution video with Google Doc image overlays using MLT"
-    )
-    mlt_service = MLTVideoService()
-    video_path = mlt_service.create_full_res_video_with_images(
-        base_name=base_name,
-        adjusted_sentences=adjusted_sentences,
-        image_placements=image_placements,
-        force=force,
-    )
-
-    print_progress(
-        f"Full resolution video with Google Doc images created: {video_path.name}"
-    )
     return video_path
 
 
@@ -804,7 +794,7 @@ def create_1080p_video_with_images(
         return output_path
 
     print_progress("Loading adjusted sentences and Google Doc image placements")
-    adjusted_sentences = saver.load_adjusted_sentences(base_name)
+    adjusted_sentences = saver.load_best_adjusted_sentences(base_name)
     image_placements = saver.load_google_doc_image_placements(base_name)
 
     print_progress("Creating 1080p video with cuts and images using MLT")
@@ -841,7 +831,7 @@ def create_full_res_video_single_pass(
         FileNotFoundError: If required files don't exist
     """
     print_progress("Loading adjusted sentences and Google Doc image placements")
-    adjusted_sentences = saver.load_adjusted_sentences(base_name)
+    adjusted_sentences = saver.load_best_adjusted_sentences(base_name)
     image_placements = saver.load_google_doc_image_placements(base_name)
 
     print_progress(

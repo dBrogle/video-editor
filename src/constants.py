@@ -32,10 +32,15 @@ STAGE_2_TRANSCRIPTION_NAME = "s2_transcription"
 # Step 3: Initial edit with LLM
 STAGE_3_EDITING_DECISION_NAME = "s3_editing_decision"
 STAGE_3_EDITING_RESULT_NAME = "s3_editing_result"
-# Step 4: Iterate sentence selection (no new files, edits s3_editing_result.json)
+# Step 4: Iterate sentence selection
+STAGE_4_SENTENCE_SELECTION_VIDEO_NAME = "s4_sentence_selection_video"
+STAGE_4_FINAL_EDITING_RESULT_NAME = "s4_final_editing_result"
 # Step 5: Generate adjusted sentences
 STAGE_5_ADJUSTED_SENTENCES_NAME = "s5_adjusted_sentences"
-# Step 6: Iterate adjusted sentences (edits s5_adjusted_sentences.json, creates preview videos)
+# Step 6: Iterate adjusted sentences
+STAGE_6_ADJUSTED_SENTENCES_VIDEO_NAME = "s6_adjusted_sentences_video"
+STAGE_6_FINAL_ADJUSTED_SENTENCES_NAME = "s6_final_adjusted_sentences"
+# Legacy names (kept for backward compatibility)
 STAGE_6_EDITED_VIDEO_NAME = "s6_edited"
 STAGE_6_DOWNSAMPLED_EDITED_NAME = "s6_downsampled_edited"
 # Step 7: Parse Google Doc script
@@ -66,12 +71,13 @@ STAGE_7_MLT_XML_NAME = "s7_with_images_mlt"
 # Audio settings
 AUDIO_SAMPLE_RATE = 16000  # 16kHz
 AUDIO_CHANNELS = 1  # Mono
-AUDIO_FORMAT = "wav"
+AUDIO_FORMAT = "mp3"
+AUDIO_BITRATE = "32k"  # MP3 bitrate for transcription quality
 
 # Video settings
 VIDEO_CODEC = "libx264"
 VIDEO_PRESET = "fast"
-AUDIO_CODEC = "pcm_s16le"
+AUDIO_CODEC = "libmp3lame"
 
 # Silence detection
 SILENCE_THRESHOLD_DB = -40
@@ -86,10 +92,10 @@ TIME_BETWEEN_WORDS_THRESHOLD = (
 # Image overlay settings
 # Position: 10th-60th percentile height (centered vertically in upper portion, larger area)
 # Position: 20th-80th percentile width (centered horizontally, wider area)
-IMAGE_SAFE_ZONE_TOP_PERCENT = 0.30  # Start at 10% from top
-IMAGE_SAFE_ZONE_BOTTOM_PERCENT = 0.50  # End at 60% from top
-IMAGE_SAFE_ZONE_LEFT_PERCENT = 0.20  # Start at 20% from left
-IMAGE_SAFE_ZONE_RIGHT_PERCENT = 0.80  # End at 80% from left
+IMAGE_SAFE_ZONE_TOP_PERCENT = 0.15  # Start at 10% from top
+IMAGE_SAFE_ZONE_BOTTOM_PERCENT = 0.33  # End at 60% from top
+IMAGE_SAFE_ZONE_LEFT_PERCENT = 0.15  # Start at 20% from left
+IMAGE_SAFE_ZONE_RIGHT_PERCENT = 0.85  # End at 80% from left
 IMAGE_DEFAULT_WIDTH = 1024
 IMAGE_DEFAULT_HEIGHT = 1024
 

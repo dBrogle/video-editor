@@ -20,6 +20,7 @@ from src.constants import (
     LOW_RES_HEIGHT,
     AUDIO_SAMPLE_RATE,
     AUDIO_CHANNELS,
+    AUDIO_BITRATE,
     VIDEO_CODEC,
     VIDEO_PRESET,
     AUDIO_CODEC,
@@ -143,7 +144,7 @@ class VideoService:
         force: bool = False,
     ) -> Path:
         """
-        Extract audio from video as mono WAV file.
+        Extract audio from video as mono MP3 file.
 
         Args:
             input_path: Path to input video file
@@ -170,7 +171,7 @@ class VideoService:
             print_progress(f"Audio file already exists: {output_path}")
             return output_path
 
-        print_progress(f"Extracting audio ({sample_rate}Hz, {channels}ch)...")
+        print_progress(f"Extracting audio ({sample_rate}Hz, {channels}ch, MP3)...")
 
         # Build ffmpeg command
         cmd = [
@@ -184,6 +185,8 @@ class VideoService:
             str(sample_rate),
             "-ac",
             str(channels),
+            "-b:a",
+            AUDIO_BITRATE,
             "-y",  # Overwrite output file
             str(output_path),
         ]
@@ -596,6 +599,7 @@ class VideoService:
         adjusted_sentences: AdjustedSentences,
         use_downsampled: bool = True,
         force: bool = False,
+        output_path: Path | None = None,
     ) -> Path:
         """
         Create an edited video using pre-computed adjusted sentences.
@@ -605,6 +609,7 @@ class VideoService:
             adjusted_sentences: AdjustedSentences with silence-trimmed timestamps
             use_downsampled: If True, edit the downsampled video (default)
             force: If True, regenerate even if file exists
+            output_path: Optional custom output path (if None, uses default path)
 
         Returns:
             Path to edited video file
@@ -619,7 +624,8 @@ class VideoService:
         else:
             input_path = get_input_video_path(base_name)
 
-        output_path = get_edited_video_path(base_name, use_downsampled)
+        if output_path is None:
+            output_path = get_edited_video_path(base_name, use_downsampled)
 
         # Skip if exists and not forcing
         if output_path.exists() and not force:

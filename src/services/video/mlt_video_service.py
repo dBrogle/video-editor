@@ -9,17 +9,11 @@ from xml.etree import ElementTree as ET
 
 from src.models import AdjustedSentences, ImagesMetadataFile, GoogleDocImagePlacements
 from src.util import (
-    get_stage_7_with_images_path,
-    get_stage_7_mlt_xml_path,
     get_stage_11_with_google_doc_images_path,
     get_stage_11_mlt_xml_path,
-    get_images_folder,
-    get_edited_video_path,
-    get_full_res_cut_video_path,
-    get_full_res_cut_mlt_path,
+    get_best_edited_video_path,
     get_full_res_with_images_video_path,
     get_full_res_with_images_mlt_path,
-    get_input_video_path,
     print_progress,
 )
 from src.constants import (
@@ -43,6 +37,9 @@ from src.services.video.mlt_util import (
     add_composite_transition,
     add_cairo_transition,
 )
+
+HIGH_RES_CRF = 19
+LOW_RES_CRF = 24
 
 
 class MLTVideoService:
@@ -152,7 +149,7 @@ class MLTVideoService:
             "-consumer",
             f"avformat:{output_path}",
             "vcodec=libx264",
-            "crf=18",
+            f"crf={HIGH_RES_CRF}",
             "preset=faster",
             "acodec=aac",
             "pix_fmt=yuv420p",
@@ -430,154 +427,6 @@ class MLTVideoService:
 
         return playlist
 
-    def _create_mlt_xml_with_images(
-        self,
-        video_path: Path,
-        adjusted_sentences: AdjustedSentences,
-        images_metadata: ImagesMetadataFile,
-        images_folder: Path,
-        output_mlt_path: Path,
-    ) -> None:
-        """
-        Create MLT XML file with image overlays on an already-cut video.
-        Uses playlist-based structure with affine filters and blend transitions.
-
-        Args:
-            video_path: Path to already-edited video file (e.g., s6_downsampled_edited.mp4)
-            adjusted_sentences: Sentences with timing info (to map sentence IDs to times in cut video)
-            images_metadata: Metadata for images to overlay
-            images_folder: Path to folder containing images
-            output_mlt_path: Path where MLT XML file will be saved
-        """
-        # Get video properties
-        props = get_video_properties(video_path)
-
-        # Calculate safe zone for image positioning (in pixels)
-        safe_zone = calculate_safe_zone(
-            props,
-            IMAGE_SAFE_ZONE_TOP_PERCENT,
-            IMAGE_SAFE_ZONE_BOTTOM_PERCENT,
-            IMAGE_SAFE_ZONE_LEFT_PERCENT,
-            IMAGE_SAFE_ZONE_RIGHT_PERCENT,
-        )
-
-        # Build sentence timeline mapping
-        sentence_timeline = self._build_sentence_timeline(adjusted_sentences)
-
-        # Calculate total duration in frames
-        total_duration = sum(
-            s.adjusted_end - s.adjusted_start for s in adjusted_sentences.sentences
-        )
-        total_frames = int(total_duration * props["fps"])
-        total_timecode = frames_to_timecode(total_frames, props["fps"])
-
-        # Create root element and profile
-        root = create_mlt_root_and_profile(props)
-
-        # Add black background producer
-        add_black_producer(root, total_timecode)
-
-        # Add video chain (not simple producer)
-        add_video_chain(root, video_path, total_timecode)
-
-        # Calculate timing for all images
-        image_timings = self._calculate_image_timings_with_delay(
-            images_metadata, sentence_timeline, props["fps"]
-        )
-
-        # Add image producers with centering
-        for i, img_meta in enumerate(images_metadata.images):
-            img_path = images_folder / img_meta.filename
-            timing = image_timings[i]
-            if timing:
-                add_image_producer(root, i, img_path, safe_zone, center_image=True)
-
-        # Create base playlists (background and video)
-        create_base_playlists(root, total_timecode)
-
-        # Create overlay playlist with blanks
-        self._create_overlay_playlist(root, image_timings, props["fps"])
-
-        # Create main tractor with tracks and transitions
-        create_main_tractor(root, total_timecode, safe_zone)
-
-        # Save XML
-        save_pretty_xml(root, output_mlt_path)
-
-        print_progress(f"Created MLT XML file with images: {output_mlt_path}")
-
-    def create_video_with_images(
-        self,
-        base_name: str,
-        adjusted_sentences: AdjustedSentences,
-        images_metadata: ImagesMetadataFile,
-        force: bool = False,
-    ) -> Path:
-        """
-        Create video with image overlays using MLT XML and melt command.
-        Uses the already-cut video from Stage 6 as the base.
-
-        Args:
-            base_name: Base filename without extension
-            adjusted_sentences: AdjustedSentences with timestamps
-            images_metadata: Metadata for images to overlay
-            force: If True, regenerate even if file exists
-
-        Returns:
-            Path to video file with images
-
-        Raises:
-            FileNotFoundError: If edited video or images don't exist
-            RuntimeError: If melt command fails
-        """
-        # Use the already-cut downsampled video from Stage 6
-        input_path = get_edited_video_path(base_name, use_downsampled=True)
-        output_path = get_stage_7_with_images_path(base_name)
-        mlt_xml_path = get_stage_7_mlt_xml_path(base_name)
-        images_folder = get_images_folder(base_name)
-
-        if not input_path.exists():
-            raise FileNotFoundError(
-                f"Edited video not found: {input_path}. Please run Stage 6 first."
-            )
-
-        if output_path.exists() and not force:
-            print_progress(f"Video with images already exists: {output_path}")
-            return output_path
-
-        print_progress(f"Creating video with images from: {input_path.name}...")
-        print_progress(f"Adding {len(images_metadata.images)} image overlays")
-
-        # Create MLT XML file (saved for debugging)
-        self._create_mlt_xml_with_images(
-            input_path,
-            adjusted_sentences,
-            images_metadata,
-            images_folder,
-            mlt_xml_path,
-        )
-
-        cmd = [
-            "melt",
-            str(mlt_xml_path),
-            "-consumer",
-            f"avformat:{output_path}",
-            "vcodec=libx264",
-            "acodec=aac",
-            "crf=18",
-            "preset=medium",
-            "pix_fmt=yuv420p",
-        ]
-
-        print_progress("Running melt command...")
-        print_progress(f"Command: {' '.join(cmd)}")
-
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-        print_progress(f"Video with images created: {output_path}")
-        print_progress(f"MLT XML saved for debugging: {mlt_xml_path}")
-        return output_path
-
     def _create_mlt_xml_with_google_doc_images(
         self,
         video_path: Path,
@@ -682,15 +531,10 @@ class MLTVideoService:
             FileNotFoundError: If edited video or images don't exist
             RuntimeError: If melt command fails
         """
-        # Use the already-cut downsampled video from Stage 6
-        input_path = get_edited_video_path(base_name, use_downsampled=True)
+        # Use the best available edited video (prefers s6_adjusted_sentences_video.mp4)
+        input_path = get_best_edited_video_path(base_name)
         output_path = get_stage_11_with_google_doc_images_path(base_name)
         mlt_xml_path = get_stage_11_mlt_xml_path(base_name)
-
-        if not input_path.exists():
-            raise FileNotFoundError(
-                f"Edited video not found: {input_path}. Please run Stage 6 first."
-            )
 
         if output_path.exists() and not force:
             print_progress(
@@ -731,7 +575,7 @@ class MLTVideoService:
             f"avformat:{output_path}",
             "vcodec=libx264",
             "acodec=aac",
-            "crf=18",
+            f"crf={HIGH_RES_CRF}",
             "preset=medium",
             "pix_fmt=yuv420p",
         ]
@@ -879,72 +723,6 @@ class MLTVideoService:
         save_pretty_xml(root, output_mlt_path)
 
         print_progress(f"Created MLT XML file for cutting: {output_mlt_path}")
-
-    def create_full_res_cut_video(
-        self,
-        base_name: str,
-        adjusted_sentences: AdjustedSentences,
-        force: bool = False,
-    ) -> Path:
-        """
-        Create full resolution cut video using MLT XML and melt command.
-        Cuts the original full resolution video based on adjusted sentences.
-
-        Args:
-            base_name: Base filename without extension
-            adjusted_sentences: AdjustedSentences with timestamps
-            force: If True, regenerate even if file exists
-
-        Returns:
-            Path to full resolution cut video file
-
-        Raises:
-            FileNotFoundError: If original video doesn't exist
-            RuntimeError: If melt command fails
-        """
-        input_path = get_input_video_path(base_name)
-        output_path = get_full_res_cut_video_path(base_name)
-        mlt_xml_path = get_full_res_cut_mlt_path(base_name)
-
-        if not input_path.exists():
-            raise FileNotFoundError(
-                f"Original video not found: {input_path}. Cannot create full resolution cut."
-            )
-
-        if output_path.exists() and not force:
-            print_progress(f"Full resolution cut video already exists: {output_path}")
-            return output_path
-
-        print_progress(f"Creating full resolution cut video from: {input_path.name}...")
-        print_progress(f"Cutting {len(adjusted_sentences.sentences)} sentences")
-
-        # Create MLT XML file (saved for debugging)
-        self._create_mlt_xml_for_cutting(
-            input_path,
-            adjusted_sentences,
-            mlt_xml_path,
-        )
-
-        cmd = [
-            "melt",
-            str(mlt_xml_path),
-            "-consumer",
-            f"avformat:{output_path}",
-            "vcodec=libx264",
-            "acodec=aac",
-            "crf=18",
-            "preset=medium",
-            "pix_fmt=yuv420p",
-        ]
-
-        print_progress("Running melt command...")
-        print_progress(f"Command: {' '.join(cmd)}")
-
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-        print_progress(f"Full resolution cut video created: {output_path}")
-        print_progress(f"MLT XML saved for debugging: {mlt_xml_path}")
-        return output_path
 
     def _create_mlt_xml_for_cutting_with_images(
         self,
@@ -1205,7 +983,7 @@ class MLTVideoService:
             f"avformat:{output_path}",
             "vcodec=libx264",
             "acodec=aac",
-            "crf=23",
+            f"crf={LOW_RES_CRF}",
             "preset=fast",
             "pix_fmt=yuv420p",
         ]
@@ -1294,7 +1072,7 @@ class MLTVideoService:
             f"avformat:{output_path}",
             "vcodec=libx264",
             "acodec=aac",
-            "crf=18",
+            f"crf={HIGH_RES_CRF}",
             "preset=medium",
             "pix_fmt=yuv420p",
         ]
@@ -1306,96 +1084,6 @@ class MLTVideoService:
 
         print_progress(
             f"Full resolution video with cuts and images created: {output_path}"
-        )
-        print_progress(f"MLT XML saved for debugging: {mlt_xml_path}")
-        return output_path
-
-    def create_full_res_video_with_images(
-        self,
-        base_name: str,
-        adjusted_sentences: AdjustedSentences,
-        image_placements: GoogleDocImagePlacements,
-        force: bool = False,
-    ) -> Path:
-        """
-        Create full resolution video with Google Doc image overlays using MLT XML and melt command.
-        Uses the full resolution cut video as the base.
-        Images are timed based on sentence duration, not fixed duration.
-
-        Args:
-            base_name: Base filename without extension
-            adjusted_sentences: AdjustedSentences with timestamps
-            image_placements: Google Doc image placements with sentence associations
-            force: If True, regenerate even if file exists
-
-        Returns:
-            Path to full resolution video file with Google Doc images
-
-        Raises:
-            FileNotFoundError: If cut video or images don't exist
-            RuntimeError: If melt command fails
-        """
-        # Use the full resolution cut video as the base
-        input_path = get_full_res_cut_video_path(base_name)
-        output_path = get_full_res_with_images_video_path(base_name)
-        mlt_xml_path = get_full_res_with_images_mlt_path(base_name)
-
-        if not input_path.exists():
-            raise FileNotFoundError(
-                f"Full resolution cut video not found: {input_path}. Please run Stage 11 first."
-            )
-
-        if output_path.exists() and not force:
-            print_progress(
-                f"Full resolution video with Google Doc images already exists: {output_path}"
-            )
-            return output_path
-
-        print_progress(
-            f"Creating full resolution video with Google Doc images from: {input_path.name}..."
-        )
-        print_progress(f"Adding {len(image_placements.placements)} image overlays")
-
-        # Verify all image files exist
-        missing_images = []
-        for placement in image_placements.placements:
-            img_path = Path(placement.filepath)
-            if not img_path.exists():
-                missing_images.append(str(img_path))
-
-        if missing_images:
-            raise FileNotFoundError(
-                "Missing image files:\n"
-                + "\n".join(f"  - {img}" for img in missing_images)
-            )
-
-        # Create MLT XML file (saved for debugging)
-        self._create_mlt_xml_with_google_doc_images(
-            input_path,
-            adjusted_sentences,
-            image_placements,
-            mlt_xml_path,
-        )
-
-        cmd = [
-            "melt",
-            str(mlt_xml_path),
-            "-consumer",
-            f"avformat:{output_path}",
-            "vcodec=libx264",
-            "acodec=aac",
-            "crf=18",
-            "preset=medium",
-            "pix_fmt=yuv420p",
-        ]
-
-        print_progress("Running melt command...")
-        print_progress(f"Command: {' '.join(cmd)}")
-
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-        print_progress(
-            f"Full resolution video with Google Doc images created: {output_path}"
         )
         print_progress(f"MLT XML saved for debugging: {mlt_xml_path}")
         return output_path

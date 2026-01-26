@@ -24,7 +24,7 @@ Thumbs.db
 assets/*.mp4
 assets/*.mov
 assets/*.MOV
-assets/*.wav
+assets/*.mp3
 assets/*.json
 assets/*.txt
 
