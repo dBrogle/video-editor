@@ -1,43 +1,28 @@
-"""
-Main entry point for the video editing pipeline.
-Provides an interactive menu for running pipeline steps.
-"""
-
 from src.services.local_saver import LocalSaverService
-from src.util import (
-    extract_filename_without_extension,
-    get_input_video_path,
-    reset_pipeline,
-)
+from src.util import extract_filename_without_extension, get_input_video_path, reset_pipeline
 from src.pipeline import (
-    preprocess_video,
-    get_transcription,
-    initial_edit_with_llm,
-    iterate_sentence_selection,
-    generate_adjusted_sentences,
-    iterate_adjusted_sentences,
-    parse_google_doc_script,
-    place_google_doc_images,
-    create_video_with_google_doc_images,
-    downsample_to_1080p,
-    create_1080p_video_with_images,
-    create_full_res_video_single_pass,
+    stage_1_preprocess_video_and_files,
+    stage_2_get_transcription,
+    stage_3_initial_edit_with_llm,
+    stage_4_iterate_sentence_selection,
+    stage_5_generate_adjusted_sentences,
+    stage_6_iterate_adjusted_sentences,
+    stage_7_parse_google_doc_script,
+    stage_8_place_google_doc_images,
+    stage_9_create_video_with_google_doc_images,
+    stage_10_downsample_to_1080p,
+    stage_11_create_1080p_video_with_images,
+    stage_12_create_full_res_video_single_pass,
 )
 
 
 def display_menu() -> list[int] | str:
-    """
-    Display menu and get user's step selections.
-
-    Returns:
-        List of selected step numbers or 'r' for reset
-    """
     print("\n" + "=" * 50)
     print("VIDEO EDITING PIPELINE")
     print("=" * 50)
     print("\nAvailable steps:")
     print("  0. Run all steps (1-11, using 1080p approach)")
-    print("  1. Preprocess video (rotate if needed, downsample, extract audio)")
+    print("  1. Preprocess video and files (rotate, downsample, audio, unzip Google Doc)")
     print("  2. Get transcription")
     print("  3. Initial edit with LLM (sentence selection)")
     print("  4. Iterate with LLM on sentence selection")
@@ -78,12 +63,6 @@ def display_menu() -> list[int] | str:
 
 
 def get_input_filename() -> str:
-    """
-    Get and validate input filename from user.
-
-    Returns:
-        Base filename without extension
-    """
     print("\n" + "-" * 50)
 
     saver = LocalSaverService()
@@ -123,14 +102,6 @@ def get_input_filename() -> str:
 def run_pipeline(
     base_name: str, steps: list[int], skip_silence_removal: bool = False
 ) -> None:
-    """
-    Run selected pipeline steps.
-
-    Args:
-        base_name: Base filename without extension
-        steps: List of step numbers to run
-        skip_silence_removal: If True, skip silence removal and use original timestamps
-    """
     print("\n" + "=" * 50)
     print(f"RUNNING PIPELINE: {base_name}")
     print("=" * 50)
@@ -139,49 +110,49 @@ def run_pipeline(
 
     step_functions = {
         1: (
-            "Preprocess video (rotate, downsample, extract audio)",
-            lambda: preprocess_video(base_name, saver),
+            "Preprocess video and files",
+            lambda: stage_1_preprocess_video_and_files(base_name, saver),
         ),
-        2: ("Get transcription", lambda: get_transcription(base_name, saver)),
+        2: ("Get transcription", lambda: stage_2_get_transcription(base_name, saver)),
         3: (
             "Initial edit with LLM (sentence selection)",
-            lambda: initial_edit_with_llm(base_name, saver),
+            lambda: stage_3_initial_edit_with_llm(base_name, saver),
         ),
         4: (
             "Iterate with LLM on sentence selection",
-            lambda: iterate_sentence_selection(base_name, saver, skip_silence_removal),
+            lambda: stage_4_iterate_sentence_selection(base_name, saver, skip_silence_removal),
         ),
         5: (
             "Generate adjusted sentences (silence removal)",
-            lambda: generate_adjusted_sentences(base_name, saver, skip_silence_removal),
+            lambda: stage_5_generate_adjusted_sentences(base_name, saver, skip_silence_removal),
         ),
         6: (
             "Iterate with LLM on adjusted sentences (timestamp adjustments)",
-            lambda: iterate_adjusted_sentences(base_name, saver, skip_silence_removal),
+            lambda: stage_6_iterate_adjusted_sentences(base_name, saver, skip_silence_removal),
         ),
         7: (
             "Parse Google Doc script (extract text & images)",
-            lambda: parse_google_doc_script(base_name, saver),
+            lambda: stage_7_parse_google_doc_script(base_name, saver),
         ),
         8: (
             "Place Google Doc images (LLM-based placement)",
-            lambda: place_google_doc_images(base_name, saver),
+            lambda: stage_8_place_google_doc_images(base_name, saver),
         ),
         9: (
             "Create downsampled video with Google Doc images",
-            lambda: create_video_with_google_doc_images(base_name, saver, force=False),
+            lambda: stage_9_create_video_with_google_doc_images(base_name, saver, force=False),
         ),
         10: (
             "Downsample full res video to 1080p (1080x1920)",
-            lambda: downsample_to_1080p(base_name, force=False),
+            lambda: stage_10_downsample_to_1080p(base_name, force=False),
         ),
         11: (
             "Create 1080p video with images (single pass)",
-            lambda: create_1080p_video_with_images(base_name, saver, force=False),
+            lambda: stage_11_create_1080p_video_with_images(base_name, saver, force=False),
         ),
         12: (
             "Create full resolution video with images (from 1080p, single pass)",
-            lambda: create_full_res_video_single_pass(base_name, saver, force=False),
+            lambda: stage_12_create_full_res_video_single_pass(base_name, saver, force=False),
         ),
     }
 
@@ -202,12 +173,10 @@ def run_pipeline(
 
 
 def main() -> None:
-    """Main entry point."""
     try:
         menu_choice = display_menu()
         base_name = get_input_filename()
 
-        # Handle reset command
         if menu_choice == "r":
             print("\n" + "=" * 50)
             print("RESET PIPELINE")
@@ -223,11 +192,6 @@ def main() -> None:
                 print("\nReset cancelled.")
             return
 
-        # menu_choice is a list of steps at this point
-        # Default to NOT skipping silence removal (i.e., perform silence removal)
-        assert isinstance(menu_choice, list), (
-            "menu_choice should be a list at this point"
-        )
         run_pipeline(base_name, menu_choice, skip_silence_removal=False)
     except KeyboardInterrupt:
         print("\n\nPipeline cancelled by user.")

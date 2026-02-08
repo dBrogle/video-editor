@@ -1,9 +1,6 @@
-"""
-Pipeline orchestration functions.
-Each function represents a step in the video editing pipeline.
-"""
-
+import shutil
 import subprocess
+import zipfile
 from pathlib import Path
 
 from src.services.video import VideoService, MLTVideoService
@@ -16,20 +13,18 @@ from src.services.agents import (
     GoogleDocImagePlacer,
 )
 from src.services.html_parser import GoogleDocHTMLParser
-from src.models import (
-    Transcript,
-    GoogleDocScript,
-    GoogleDocImagePlacements,
-)
+from src.models import Transcript, GoogleDocScript, GoogleDocImagePlacements
 from src.constants import ASSETS_DIR, HD_1080P_HEIGHT
 from src.util import (
     get_input_video_path,
     get_audio_path,
+    get_base_folder,
+    get_google_doc_folder,
+    get_google_doc_html_path,
+    get_google_doc_images_folder,
     print_progress,
     convert_editing_decision_to_result,
     get_stage_11_with_google_doc_images_path,
-    get_google_doc_html_path,
-    get_google_doc_images_folder,
     get_1080p_downsample_video_path,
     get_1080p_with_images_video_path,
     get_sentence_selection_video_path,
@@ -37,31 +32,80 @@ from src.util import (
 )
 
 
-def preprocess_video(
+def _preprocess_google_doc_zip(base_name: str, force: bool = False) -> bool:
+    base_folder = get_base_folder(base_name)
+    google_doc_folder = get_google_doc_folder(base_name)
+    target_html_path = get_google_doc_html_path(base_name)
+    target_images_folder = get_google_doc_images_folder(base_name)
+
+    if target_html_path.exists() and target_images_folder.exists() and not force:
+        print_progress("  - Google Doc already extracted, skipping")
+        return True
+
+    zip_files = list(base_folder.glob("*.zip"))
+    if not zip_files:
+        print_progress("  - No Google Doc zip found, skipping")
+        return False
+
+    if len(zip_files) > 1:
+        raise ValueError(f"Multiple zip files found in {base_folder}: {[z.name for z in zip_files]}")
+
+    zip_path = zip_files[0]
+    print_progress(f"  - Extracting Google Doc zip: {zip_path.name}")
+
+    temp_extract_dir = base_folder / "_temp_zip_extract"
+    if temp_extract_dir.exists():
+        shutil.rmtree(temp_extract_dir)
+    temp_extract_dir.mkdir()
+
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(temp_extract_dir)
+
+        html_files = list(temp_extract_dir.rglob("*.html"))
+        if not html_files:
+            raise ValueError(f"No .html file found in zip: {zip_path.name}")
+        if len(html_files) > 1:
+            raise ValueError(f"Multiple .html files found in zip: {[h.name for h in html_files]}")
+
+        images_folders = [d for d in temp_extract_dir.rglob("*") if d.is_dir() and d.name == "images"]
+        if not images_folders:
+            raise ValueError(f"No 'images' folder found in zip: {zip_path.name}")
+        if len(images_folders) > 1:
+            raise ValueError(f"Multiple 'images' folders found in zip: {[str(i) for i in images_folders]}")
+
+        html_file = html_files[0]
+        images_folder = images_folders[0]
+
+        google_doc_folder.mkdir(parents=True, exist_ok=True)
+
+        if target_html_path.exists():
+            target_html_path.unlink()
+        shutil.move(str(html_file), str(target_html_path))
+
+        if target_images_folder.exists():
+            shutil.rmtree(target_images_folder)
+        shutil.move(str(images_folder), str(target_images_folder))
+
+        print_progress(f"    HTML: {target_html_path.name}")
+        print_progress(f"    Images: {target_images_folder.name}/")
+        return True
+
+    finally:
+        if temp_extract_dir.exists():
+            shutil.rmtree(temp_extract_dir)
+
+
+def stage_1_preprocess_video_and_files(
     base_name: str, saver: LocalSaverService, force: bool = False
 ) -> None:
-    """
-    Step 1: Preprocess video - rotate if needed, downsample, and extract audio.
+    print_progress(f"Preprocessing video and files: {base_name}")
 
-    This step combines three operations:
-    1. Check for rotation metadata and create properly oriented .mp4 (common with iPhone videos)
-    2. Downsample video to low resolution for faster editing
-    3. Extract audio for transcription
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        force: If True, regenerate even if files exist
-    """
-    print_progress(f"Preprocessing video: {base_name}")
-
-    # Step 1a: Rotate video if needed
     print_progress("  - Checking video rotation...")
     mlt_service = MLTVideoService()
     output_path = mlt_service.rotate_video_if_needed(base_name, force=force)
     print_progress(f"    Video ready: {output_path.name}")
 
-    # Step 1b: Downsample video
     if saver.downsampled_video_exists(base_name) and not force:
         print_progress("  - Downsampled video already exists, skipping")
     else:
@@ -71,7 +115,6 @@ def preprocess_video(
         video_service.generate_proxy_video(input_path, force=force)
         print_progress("    Downsampled video created")
 
-    # Step 1c: Extract audio
     if saver.audio_exists(base_name) and not force:
         print_progress("  - Audio file already exists, skipping")
     else:
@@ -81,20 +124,12 @@ def preprocess_video(
         video_service.extract_audio(input_path, force=force)
         print_progress("    Audio extracted")
 
-    print_progress("Video preprocessing complete")
+    _preprocess_google_doc_zip(base_name, force=force)
+
+    print_progress("Preprocessing complete")
 
 
-def get_transcription(base_name: str, saver: LocalSaverService) -> Transcript:
-    """
-    Step 2: Get transcription from audio.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service for saving/loading transcription
-
-    Returns:
-        Transcript object
-    """
+def stage_2_get_transcription(base_name: str, saver: LocalSaverService) -> Transcript:
     if saver.transcription_exists(base_name):
         print_progress("Transcription already exists, loading from file")
         return saver.load_transcription(base_name)
@@ -111,16 +146,7 @@ def get_transcription(base_name: str, saver: LocalSaverService) -> Transcript:
     return transcript
 
 
-def initial_edit_with_llm(base_name: str, saver: LocalSaverService, force: bool = False) -> None:
-    """
-    Step 3: Initial edit with LLM - get editing decisions and create editable result.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        force: If True, regenerate even if editing decision exists
-    """
-    # Check if editing decision already exists
+def stage_3_initial_edit_with_llm(base_name: str, saver: LocalSaverService, force: bool = False) -> None:
     if saver.editing_decision_exists(base_name) and not force:
         print_progress("Editing decision already exists, skipping")
         print_progress("If you want to regenerate, delete s3_editing_decision.json and s3_editing_result.json and run again")
@@ -146,20 +172,9 @@ def initial_edit_with_llm(base_name: str, saver: LocalSaverService, force: bool 
     print(f"Editable result saved to: {result_path.name}")
 
 
-def generate_adjusted_sentences(
+def stage_5_generate_adjusted_sentences(
     base_name: str, saver: LocalSaverService, skip_silence_removal: bool = False
 ) -> None:
-    """
-    Step 5: Generate adjusted sentences with optional silence removal.
-
-    Reads from: s4_final_editing_result.json or s3_editing_result.json
-    Saves to: s5_adjusted_sentences.json (initial version, can be iterated on in step 6)
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
-    """
     if saver.adjusted_sentences_exist(base_name):
         print_progress("Adjusted sentences already exist, skipping")
         print_progress(
@@ -191,25 +206,9 @@ def generate_adjusted_sentences(
     print_progress(f"Adjusted sentences saved to: {adjusted_path.name}")
 
 
-def iterate_adjusted_sentences(
+def stage_6_iterate_adjusted_sentences(
     base_name: str, saver: LocalSaverService, skip_silence_removal: bool = False
 ) -> None:
-    """
-    Step 6: Iterate with LLM on adjusted sentences (silence removal and timestamp adjustments).
-
-    Interactive feedback loop for fine-tuning timestamps of selected sentences.
-    User can provide feedback and the LLM will adjust timestamps accordingly.
-
-    Reads from: s4_final_editing_result.json or s3_editing_result.json
-    Generates: s5_adjusted_sentences.json (initial/working), s6_adjusted_sentences_video.mp4 (for preview)
-    Saves to: s6_final_adjusted_sentences.json (when approved)
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
-    """
-    # Check if already approved
     if saver.final_adjusted_sentences_exist(base_name):
         print_progress("Final adjusted sentences already exist, skipping iteration")
         print_progress(
@@ -335,25 +334,9 @@ def iterate_adjusted_sentences(
     print("=" * 60)
 
 
-def iterate_sentence_selection(
+def stage_4_iterate_sentence_selection(
     base_name: str, saver: LocalSaverService, skip_silence_removal: bool = False
 ) -> None:
-    """
-    Step 4: Iterate with LLM on sentence selection.
-
-    Interactive feedback loop for reviewing which sentences to keep/remove.
-    User can provide feedback and the LLM will adjust the sentence selection accordingly.
-
-    Reads from: s3_editing_result.json (initial)
-    Generates: s4_sentence_selection_video.mp4 (for iteration preview)
-    Saves to: s4_final_editing_result.json (when approved)
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        skip_silence_removal: If True, skip silence removal and use original timestamps (default: False)
-    """
-    # Check if already approved
     if saver.final_editing_result_exists(base_name):
         print_progress("Final sentence selection already exists, skipping iteration")
         print_progress(
@@ -465,24 +448,9 @@ def iterate_sentence_selection(
     print("=" * 60)
 
 
-def parse_google_doc_script(
+def stage_7_parse_google_doc_script(
     base_name: str, saver: LocalSaverService
 ) -> GoogleDocScript:
-    """
-    Step 7: Parse Google Doc HTML to extract text lines and associated images.
-    Saves the parsed script to s8_google_doc_script.json.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-
-    Returns:
-        GoogleDocScript with parsed lines and image associations
-
-    Raises:
-        FileNotFoundError: If Google Doc HTML doesn't exist
-    """
-    # Check if script already exists
     if saver.google_doc_script_exists(base_name):
         print_progress("Google Doc script already exists, loading from file")
         script = saver.load_google_doc_script(base_name)
@@ -535,95 +503,16 @@ def parse_google_doc_script(
     return script
 
 
-def render_shotcut_mlt(force: bool = False) -> Path:
-    """
-    Render video from Shotcut MLT file (for testing).
-    This function is kept for future use but not included in the main pipeline.
-
-    Args:
-        force: If True, regenerate even if file exists
-
-    Returns:
-        Path to rendered video file
-    """
-    print("\n" + "=" * 60)
-    print("Render Shotcut MLT (Testing)")
-    print("=" * 60)
-
-    # Hard-coded paths for testing
-    mlt_path = Path(
-        "/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/shotcut/shotcut_xml.mlt"
-    )
-    output_path = Path(
-        "/Users/deanoglellc/Desktop/Brogle/Shorts/workspace/video_editing/shotcut/shotcut_output.mp4"
-    )
-
-    if output_path.exists() and not force:
-        print_progress(f"Output already exists: {output_path}")
-        return output_path
-
-    if not mlt_path.exists():
-        raise FileNotFoundError(f"MLT file not found: {mlt_path}")
-
-    print_progress(f"Rendering video from: {mlt_path}")
-
-    cmd = [
-        "melt",
-        str(mlt_path),
-        "-consumer",
-        f"avformat:{output_path}",
-        "vcodec=libx264",
-        "acodec=aac",
-        "crf=23",
-        "preset=fast",
-        "movflags=+faststart",
-        "real_time=-1",
-        "rescale=bilinear",
-        "deinterlace_method=yadif",
-        "top_field_first=2",
-    ]
-    print_progress("Running melt command...")
-    print_progress(f"Command: {' '.join(cmd)}")
-
-    subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-    print("\n" + "=" * 60)
-    print("Render Complete!")
-    print("=" * 60)
-    print(f"\nRendered video: {output_path}")
-
-    return output_path
-
-
-def place_google_doc_images(
+def stage_8_place_google_doc_images(
     base_name: str, saver: LocalSaverService
 ) -> GoogleDocImagePlacements:
-    """
-    Step 8: Place images from Google Doc script onto video timeline.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-
-    Returns:
-        GoogleDocImagePlacements with image timing information
-
-    Raises:
-        FileNotFoundError: If required files don't exist
-    """
-    # Check if placements already exist
     if saver.google_doc_image_placements_exist(base_name):
         print_progress("Google Doc image placements already exist, loading from file")
         placements = saver.load_google_doc_image_placements(base_name)
         print_progress(f"Loaded {len(placements.placements)} image placements")
         for i, placement in enumerate(placements.placements, 1):
-            sentence_range = (
-                f"{placement.sentence_indexes[0]}-{placement.sentence_indexes[-1]}"
-                if len(placement.sentence_indexes) > 1
-                else placement.sentence_indexes[0]
-            )
             print_progress(
-                f"  {i}. {Path(placement.filepath).name}: sentences {sentence_range}"
+                f"  {i}. {Path(placement.filepath).name}: sentence {placement.sentence_index} [{placement.start_fraction:.1f}-{placement.end_fraction:.1f}]"
             )
         return placements
 
@@ -657,36 +546,16 @@ def place_google_doc_images(
     # Print summary
     print_progress(f"Successfully placed {len(placements.placements)} images")
     for i, placement in enumerate(placements.placements, 1):
-        sentence_range = (
-            f"{placement.sentence_indexes[0]}-{placement.sentence_indexes[-1]}"
-            if len(placement.sentence_indexes) > 1
-            else placement.sentence_indexes[0]
-        )
-        num_sentences = len(placement.sentence_indexes)
         print_progress(
-            f"  {i}. {Path(placement.filepath).name}: sentences {sentence_range} ({num_sentences} sentence{'s' if num_sentences > 1 else ''})"
+            f"  {i}. {Path(placement.filepath).name}: sentence {placement.sentence_index} [{placement.start_fraction:.1f}-{placement.end_fraction:.1f}]"
         )
 
     return placements
 
 
-def create_video_with_google_doc_images(
+def stage_9_create_video_with_google_doc_images(
     base_name: str, saver: LocalSaverService, force: bool = False
 ) -> Path:
-    """
-    Step 9: Create downsampled video with Google Doc image overlays.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        force: If True, regenerate even if file exists
-
-    Returns:
-        Path to video with Google Doc images
-
-    Raises:
-        FileNotFoundError: If required files don't exist
-    """
     output_path = get_stage_11_with_google_doc_images_path(base_name)
     if output_path.exists() and not force:
         print_progress("Video with Google Doc images already exists, skipping")
@@ -709,20 +578,7 @@ def create_video_with_google_doc_images(
     return video_path
 
 
-def downsample_to_1080p(base_name: str, force: bool = False) -> Path:
-    """
-    Step 10: Downsample the full resolution video to 1080x1920 (1080p vertical).
-
-    Args:
-        base_name: Base filename without extension
-        force: If True, regenerate even if file exists
-
-    Returns:
-        Path to 1080p downsampled video
-
-    Raises:
-        FileNotFoundError: If input video doesn't exist
-    """
+def stage_10_downsample_to_1080p(base_name: str, force: bool = False) -> Path:
     output_path = get_1080p_downsample_video_path(base_name)
 
     if output_path.exists() and not force:
@@ -730,12 +586,7 @@ def downsample_to_1080p(base_name: str, force: bool = False) -> Path:
         return output_path
 
     print_progress("Downsampling full resolution video to 1080x1920...")
-
-    # Get the full resolution video path
     input_path = get_input_video_path(base_name)
-
-    # Use ffmpeg directly for 1080p downsampling
-    import subprocess
 
     cmd = [
         "ffmpeg",
@@ -770,23 +621,9 @@ def downsample_to_1080p(base_name: str, force: bool = False) -> Path:
         ) from e
 
 
-def create_1080p_video_with_images(
+def stage_11_create_1080p_video_with_images(
     base_name: str, saver: LocalSaverService, force: bool = False
 ) -> Path:
-    """
-    Step 11: Create 1080p video with cuts AND images using MLT (operates on 1080p downsampled video).
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        force: If True, regenerate even if file exists
-
-    Returns:
-        Path to 1080p video with cuts and images
-
-    Raises:
-        FileNotFoundError: If required files don't exist
-    """
     output_path = get_1080p_with_images_video_path(base_name)
 
     if output_path.exists() and not force:
@@ -810,26 +647,9 @@ def create_1080p_video_with_images(
     return video_path
 
 
-def create_full_res_video_single_pass(
+def stage_12_create_full_res_video_single_pass(
     base_name: str, saver: LocalSaverService, force: bool = False
 ) -> Path:
-    """
-    Step 12: Create full resolution video with cuts AND images in a single MLT pass.
-
-    This is the final output - operates on the 1080p downsampled video (from Step 10)
-    with all edits and image overlays applied in one efficient rendering operation.
-
-    Args:
-        base_name: Base filename without extension
-        saver: Local saver service
-        force: If True, regenerate even if file exists
-
-    Returns:
-        Path to full resolution video with cuts and images
-
-    Raises:
-        FileNotFoundError: If required files don't exist
-    """
     print_progress("Loading adjusted sentences and Google Doc image placements")
     adjusted_sentences = saver.load_best_adjusted_sentences(base_name)
     image_placements = saver.load_google_doc_image_placements(base_name)

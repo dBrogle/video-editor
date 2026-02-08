@@ -243,7 +243,7 @@ class MLTVideoService:
         fps: float,
     ) -> list[tuple[int, int, int] | None]:
         """
-        Calculate timing for Google Doc images based on sentence duration.
+        Calculate timing for Google Doc images based on sentence duration and fractional placement.
 
         Args:
             image_placements: Google Doc image placements with sentence associations
@@ -256,24 +256,19 @@ class MLTVideoService:
         image_timings: list[tuple[int, int, int] | None] = []
 
         for i, placement in enumerate(image_placements.placements):
-            if not placement.sentence_indexes:
+            sent_id = placement.sentence_index
+            if sent_id not in sentence_timeline:
                 image_timings.append(None)
                 continue
 
-            sentence_starts = []
-            sentence_ends = []
-            for sent_id in placement.sentence_indexes:
-                if sent_id in sentence_timeline:
-                    times = sentence_timeline[sent_id]
-                    sentence_starts.append(times["start"])
-                    sentence_ends.append(times["end"])
+            times = sentence_timeline[sent_id]
+            sentence_start = times["start"]
+            sentence_end = times["end"]
+            sentence_duration = sentence_end - sentence_start
 
-            if not sentence_starts:
-                image_timings.append(None)
-                continue
+            img_start = sentence_start + (sentence_duration * placement.start_fraction)
+            img_end = sentence_start + (sentence_duration * placement.end_fraction)
 
-            img_start = min(sentence_starts)
-            img_end = max(sentence_ends)
             img_start_frame = int(img_start * fps)
             img_end_frame = int(img_end * fps)
 

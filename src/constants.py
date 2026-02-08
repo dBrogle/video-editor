@@ -115,7 +115,7 @@ class OpenRouterModel(str, Enum):
 
     # OpenAI Models
     GPT_51 = "openai/gpt-5.1"
-    GEMINI_25_FLASH = "google/gemini-2.5-flash"
+    GEMINI_3_FLASH = "google/gemini-3-flash-preview"
     CLAUDE_SONNET_45 = "anthropic/claude-sonnet-4.5"
 
 
