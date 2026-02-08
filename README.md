@@ -16,23 +16,23 @@ Assets are organized into folders by video name:
 ```
 assets/
   IMG_2362/
-    IMG_2362.MOV              # Original video
-    s1_downsampled.mp4        # Stage 1: Downsampled video
-    s2_audio.wav              # Stage 2: Extracted audio
-    s3_transcription.json     # Stage 3: Transcription
-    s4_editing_decision.json  # Stage 4: LLM editing decision
-    s4_editing_result.json    # Stage 4: Human-editable format
-    s5_adjusted_sentences.json # Stage 5: Timestamps with silence removed
-    s6_downsampled_edited.mp4 # Stage 6: Edited downsampled video
-    s7_final_cut.mp4          # Stage 7: Final high-res cut
-    s7_audio.wav              # Stage 7: Final cut audio
-    s7_final_cut_downsampled.mp4 # Stage 7: Downsampled final cut
-    s7_final_cut_transcription.json # Stage 7: Final cut transcription
-    images/                   # Stage 8: AI-generated images
-      image_001.png
-      image_002.png
-      images_metadata.json    # Image metadata (prompts, timing)
-    s8_with_images_downsampled.mp4 # Stage 8: Video with image overlays
+    IMG_2362.MOV              # Original video (VIDEO NAME MUST MATCH FOLDER NAME)
+    s1_downsampled.mp4        # Step 1: Downsampled video (preprocessing)
+    s1_audio.mp3              # Step 1: Extracted audio (preprocessing)
+    s2_transcription.json     # Step 2: Transcription
+    s3_editing_decision.json  # Step 3: Initial LLM editing decision
+    s3_editing_result.json    # Step 3: Human-editable format
+    s5_adjusted_sentences.json # Step 5: Timestamps with silence removed
+    s6_downsampled_edited.mp4 # Step 6: Preview video (iteration)
+    google_doc/               # Step 7-8: Google Doc script and images
+      IMG_2362.html           # Google Doc HTML export (HTML FILE NAME MUST MATCH FOLDER NAME)
+      images/                 # Images from Google Doc (this should be automatically set up)
+        image_001.png
+        image_002.png
+    s7_google_doc_script.json # Step 7: Parsed Google Doc script
+    s8_google_doc_image_placements.json # Step 8: Image placement data
+    s9_with_google_doc_images.mp4 # Step 9: Downsampled video with images
+    s10_full_res_with_images.mp4 # Step 10: Final full-res video with images
 ```
 
 ## Installation
@@ -42,10 +42,13 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 brew install ffmpeg  # macOS
+brew install melt
 
 cp .env.example .env
 # Edit .env with your API keys
 ```
+
+I'm also pretty sure you need to install melt in terminal
 
 ## Migration (Existing Users)
 
@@ -74,7 +77,7 @@ python main.py
 
 ```python
 from src.services.video import VideoService
-from src.services.stt.elevenlabs import ElevenLabsSTTService
+from src.services.stt.deepgram import DeepgramSTTService
 from src.services.local_saver import LocalSaverService
 from src.util import prepare_transcript_for_prompt
 
@@ -83,7 +86,7 @@ video_service = VideoService()
 proxy_video, audio_file = video_service.process_video("assets/input.mp4")
 
 # Transcribe (automatically generates sentences)
-stt = ElevenLabsSTTService()
+stt = DeepgramSTTService()
 transcript = stt.transcribe(audio_file)
 
 # Sentences are now available directly in transcript
@@ -102,22 +105,16 @@ class WordTimestamp(BaseModel):
     start: float
     end: float
 
-class TranscriptSegment(BaseModel):
-    text: str
+class LLMTranscriptSentence(BaseModel):
+    sentence: str
     start: float
     end: float
     words: list[WordTimestamp]
 
 class Transcript(BaseModel):
-    segments: list[TranscriptSegment]
-    sentences: list[LLMTranscriptSentence]  # Pre-computed sentences for editing
+    sentences: list[LLMTranscriptSentence]  # Sentences with word-level timestamps
     language: str | None
     duration: float | None
-
-class LLMTranscriptSentence(BaseModel):
-    sentence: str
-    start: float
-    end: float
 
 class EditingDecision(BaseModel):  # LLM response
     thoughts: str
@@ -143,18 +140,23 @@ class AdjustedSentences(BaseModel):
 
 ## Pipeline Steps
 
-The video editing pipeline consists of 8 steps:
+The video editing pipeline consists of 10 main steps:
 
-1. **Downsample video** - Create low-res proxy for faster processing
-2. **Extract audio** - Extract audio track as WAV file
-3. **Get transcription** - Transcribe audio with word-level timestamps
-4. **Prompt LLM for editing** - Get AI suggestions for which sentences to remove
+1. **Preprocess video** - Rotate if needed, downsample, and extract audio in one step
+2. **Get transcription** - Transcribe audio with word-level timestamps
+3. **Initial edit with LLM** - Get AI suggestions for which sentences to remove
+4. **Iterate sentence selection** - Interactive AI agent for refining which sentences to keep/remove
 5. **Generate adjusted sentences** - Analyze audio and remove silence from clip boundaries
-6. **Create edited video** - Generate edited video using adjusted timestamps (downsampled)
-7. **Two-stage feedback loop** - Interactive AI agents for refining the cut:
-   - Stage 1: Sentence Selection Agent - Choose which sentences to keep/remove
-   - Stage 2: Timestamp Adjustment Agent - Fine-tune timestamps and pacing
-8. **Create final cut** - Generate full-resolution final cut using MLT framework, extract audio, downsample and transcribe
+6. **Iterate adjusted sentences** - Interactive AI agent for fine-tuning timestamps and pacing
+7. **Parse Google Doc script** - Extract text lines and images from Google Doc HTML export
+8. **Place Google Doc images** - Use LLM to match script images to video timeline
+9. **Create downsampled video with images** - Generate preview video with image overlays
+10. **Create full res video with images** - Generate final full-resolution video (single pass)
+
+### Advanced Options
+
+- **Step 11**: Cut full resolution video only (no images)
+- **Step 12**: Add images to full resolution video (two-step approach)
 
 ## Editing Workflow
 
@@ -166,7 +168,7 @@ The pipeline creates three editable files:
 
 You can manually edit these files between steps:
 
-**Edit `_editing_result.json` to change which sentences to keep:**
+**Edit `s3_editing_result.json` to change which sentences to keep:**
 ```json
 {
   "sentence_results": {
@@ -176,7 +178,7 @@ You can manually edit these files between steps:
 }
 ```
 
-**Edit `_adjusted_sentences.json` to fine-tune timing:**
+**Edit `s5_adjusted_sentences.json` to fine-tune timing:**
 ```json
 {
   "sentences": [
@@ -191,20 +193,18 @@ You can manually edit these files between steps:
 }
 ```
 
-## AI Feedback Agents (Step 7)
+## AI Feedback Agents (Steps 4 & 6)
 
-The feedback loop step introduces two interactive AI agents that help refine your video cut in two sequential stages.
+The pipeline includes two interactive AI agents that help refine your video cut in separate steps.
 
-### Two-Stage Workflow
-
-#### Stage 1: Sentence Selection
+### Step 4: Sentence Selection Iteration
 1. Review the downsampled video to see which sentences are included
 2. Provide feedback on which sentences to keep or remove (e.g., "Remove sentence 5", "Keep sentence 12")
-3. The Sentence Selection Agent updates the editing result (s4_editing_result.json)
+3. The Sentence Selection Agent updates the editing result (s3_editing_result.json)
 4. Video is regenerated with the new sentence selection
 5. Loop continues until you approve the sentence selection
 
-#### Stage 2: Timestamp Adjustment
+### Step 6: Timestamp Adjustment Iteration
 1. Review the approved sentence selection with programmatically-generated timestamps
 2. Provide feedback on timing and pacing (e.g., "Cut 2 seconds from the beginning", "Reduce pause between sentence 3 and 4")
 3. The Timestamp Adjustment Agent updates the adjusted sentences (s5_adjusted_sentences.json)
@@ -221,61 +221,6 @@ The feedback loop step introduces two interactive AI agents that help refine you
 
 - **Adjust timestamps** - Modify start/end times of any sentence (uses word-level timestamps)
 - **Approve** - Finalize the cut and proceed to the next step
-
-### Example Feedback
-
-#### Stage 1 (Sentence Selection)
-```
-💬 Is the sentence selection good?
-Your feedback: Remove sentences 6 and 7, they're filler
-
-🤖 Agent thoughts: User wants to remove sentences 6 and 7 as they are filler content...
-   Executing: remove_sentence with {'sentence_index': '6'}
-   ✓ Marked sentence 6 to be REMOVED
-   Executing: remove_sentence with {'sentence_index': '7'}
-   ✓ Marked sentence 7 to be REMOVED
-
-🎬 Generating video with current sentence selection...
-```
-
-#### Stage 2 (Timestamp Adjustment)
-```
-💬 How do the timestamps look?
-Your feedback: The pause between sentence 3 and 4 is too long
-
-🤖 Agent thoughts: User wants to reduce the gap between sentences 3 and 4...
-   Executing: adjust_timestamp with {'sentence_index': '4', 'field': 'adjusted_start', 'new_value': 9.2}
-   ✓ Adjusted sentence 4 adjusted_start to 9.2s
-
-🎬 Regenerating video with timestamp adjustments...
-```
-
-### Usage in Code
-
-```python
-from src.services.agents import SentenceSelectionAgent, TimestampAdjustmentAgent
-from src.services.local_saver import LocalSaverService
-
-# Stage 1: Sentence Selection
-sentence_agent = SentenceSelectionAgent()
-saver = LocalSaverService()
-
-editing_result = saver.load_editing_result("video_name")
-user_feedback = "Remove sentence 5"
-updated_result, is_approved = sentence_agent.process_feedback(
-    editing_result=editing_result,
-    user_feedback=user_feedback,
-)
-
-# Stage 2: Timestamp Adjustment
-timestamp_agent = TimestampAdjustmentAgent()
-adjusted_sentences = saver.load_adjusted_sentences("video_name")
-user_feedback = "Cut 1 second from the start"
-updated_sentences, is_approved = timestamp_agent.process_feedback(
-    adjusted_sentences=adjusted_sentences,
-    user_feedback=user_feedback,
-)
-```
 
 ## MLT Video Service
 
@@ -320,14 +265,14 @@ python test_mlt.py
 
 ### How it works in the Pipeline
 
-Step 7 of the pipeline now uses the MLT video service to create the final cut:
+Steps 9-10 of the pipeline use the MLT video service to create videos with image overlays:
 
 1. Reads the adjusted sentences from step 5 (with silence-trimmed timestamps)
-2. Detects the original video's properties (resolution, framerate)
-3. Generates a temporary MLT XML file with all the clip segments
-4. Runs `melt` command to render the final high-resolution video
-5. Cleans up temporary files
-6. Then extracts audio, downsamples, and transcribes the final cut
+2. Reads the image placements from step 8 (with timing and positioning data)
+3. Detects the original video's properties (resolution, framerate)
+4. Generates an MLT XML file with video clips and image overlays
+5. Runs `melt` command to render the final video
+6. Cleans up temporary files
 
 This approach is more efficient than loading the entire video into memory, especially for large high-resolution files.
 
@@ -359,67 +304,48 @@ The service generates MLT XML files like this:
 </mlt>
 ```
 
-## Stage 8: AI-Generated Image Overlays
+## Google Doc Image Overlays (Steps 7-9)
 
-Stage 8 adds AI-generated images as overlays to your video based on the transcript content.
+Steps 7-9 add images from a Google Doc script as overlays to your video.
 
 ### Features
 
-- **LLM-Powered Planning**: An LLM analyzes your transcript and suggests relevant images
-- **Parallel Image Generation**: Multiple images generated concurrently using OpenRouter
-- **Smart Positioning**: Images placed in a "safe zone" (60-80% height, 30-70% width)
+- **Google Doc Integration**: Export your script as HTML with embedded images
+- **LLM-Powered Placement**: An LLM analyzes your script and video to place images intelligently
+- **Smart Positioning**: Images placed in a "safe zone" (20-40% height, 30-70% width)
 - **Automatic Timing**: Images synced to specific sentences in the transcript
 - **MLT Integration**: Efficient video compositing using MLT framework
 
 ### Workflow
 
-1. **Plan Images**: LLM analyzes transcript and creates image descriptions
-2. **Generate Images**: OpenRouter generates images from detailed prompts
-3. **Create Video**: MLT composites images onto video at specified times
+1. **Step 7 - Parse Google Doc**: Extract text lines and images from HTML export
+2. **Step 8 - Place Images**: LLM matches script images to video timeline
+3. **Step 9 - Create Video**: MLT composites images onto downsampled video
+4. **Step 10 - Final Output**: MLT creates full-resolution video with images
 
 ### Usage
 
 ```bash
 python main.py
-# Select option 9: "Add AI-generated images (Stage 8 - first pass)"
+# Run steps 7, 8, 9, and 10 for complete workflow
 ```
 
-### Image Metadata
+### Google Doc Setup
 
-Each generated image has metadata stored in `images/images_metadata.json`:
-
-```json
-{
-  "images": [
-    {
-      "filename": "image_001.png",
-      "prompt": "A professional photograph of a happy Corgi...",
-      "sentence_ids": ["1", "2"],
-      "generated_at": "2024-01-15T10:30:00",
-      "generator_service": "openrouter"
-    }
-  ]
-}
-```
+1. Create your script in Google Docs with embedded images
+2. Export as HTML: File → Download → Web Page (.html, zipped)
+3. Extract the zip file
+4. Place the HTML file and images folder in: `assets/{video_name}/google_doc/`
+   - HTML file: `assets/{video_name}/google_doc/{video_name}.html`
+   - Images: `assets/{video_name}/google_doc/images/`
 
 ### Configuration
-
-OpenRouter API key is already configured (same as for LLM editing decisions).
-
-Image generation model can be changed in the pipeline or by modifying `src/constants.py`:
-
-```python
-# Available models:
-OpenRouterImageModel.GEMINI_25_FLASH_IMAGE  # Default
-OpenRouterImageModel.GEMINI_3_PRO_IMAGE_PREVIEW
-OpenRouterImageModel.FLUX_2_PRO
-```
 
 Image safe zone can be adjusted in `src/constants.py`:
 
 ```python
-IMAGE_SAFE_ZONE_TOP_PERCENT = 0.60    # Start at 60% from top
-IMAGE_SAFE_ZONE_BOTTOM_PERCENT = 0.80  # End at 80% from top
+IMAGE_SAFE_ZONE_TOP_PERCENT = 0.20    # Start at 20% from top
+IMAGE_SAFE_ZONE_BOTTOM_PERCENT = 0.40  # End at 40% from top
 IMAGE_SAFE_ZONE_LEFT_PERCENT = 0.30    # Start at 30% from left
 IMAGE_SAFE_ZONE_RIGHT_PERCENT = 0.70   # End at 70% from left
 ```
@@ -428,7 +354,8 @@ IMAGE_SAFE_ZONE_RIGHT_PERCENT = 0.70   # End at 70% from left
 
 - Python 3.10+
 - ffmpeg
-- ElevenLabs API key (for transcription)
+- Deepgram API key (for transcription) - **Recommended** for better sentence segmentation
+  - Alternative: ElevenLabs API key (legacy support)
 - OpenRouter API key (for LLM editing decisions and image generation)
 - MLT framework (required for stages 7-8)
   - macOS: `brew install mlt`

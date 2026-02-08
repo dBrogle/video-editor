@@ -25,10 +25,10 @@ class OpenRouterLLMService(LLMService):
 
     def __init__(
         self,
-        model: OpenRouterModel | str = OpenRouterModel.GEMINI_25_FLASH,
+        model: OpenRouterModel | str = OpenRouterModel.GEMINI_3_FLASH,
         api_key: str | None = None,
         temperature: float = 0.7,
-        max_tokens: int = 2000,
+        max_tokens: int = 5000,
     ):
         """
         Initialize OpenRouter LLM service.

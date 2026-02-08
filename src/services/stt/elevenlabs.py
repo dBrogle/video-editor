@@ -10,9 +10,9 @@ from typing import Any, Dict
 from elevenlabs.client import ElevenLabs  # type: ignore
 
 from src.services.stt.base import SpeechToTextService
-from src.models import Transcript, TranscriptSegment, WordTimestamp
+from src.models import Transcript, WordTimestamp, LLMTranscriptSentence
 from src.constants import ENV_ELEVENLABS_API_KEY
-from src.util import validate_file_exists, prepare_transcript_for_prompt
+from src.util import validate_file_exists
 
 
 class ElevenLabsSTTService(SpeechToTextService):
@@ -69,12 +69,11 @@ class ElevenLabsSTTService(SpeechToTextService):
                     diarize=True,  # Annotate who is speaking
                 )
 
-            # Convert SDK response to internal model
+            # Convert SDK response to internal model with sentences
             transcript = self._convert_response(transcription)
 
-            # Generate sentences from segments
-            sentences = prepare_transcript_for_prompt(transcript)
-            transcript.sentences = sentences
+            # Split sentences based on word gaps before returning
+            transcript = self._split_sentences_by_word_gaps(transcript)
 
             return transcript
 
@@ -95,8 +94,6 @@ class ElevenLabsSTTService(SpeechToTextService):
         Returns:
             Internal Transcript model
         """
-        segments = []
-
         # Convert response to dict if it's a Pydantic model
         if hasattr(response, "model_dump"):
             response_dict = response.model_dump()
@@ -114,33 +111,24 @@ class ElevenLabsSTTService(SpeechToTextService):
                 response_dict = transcripts[0]
             else:
                 # No transcripts available
-                return Transcript(segments=[], language=None, duration=None)
+                return Transcript(sentences=[], language=None, duration=None)
 
         # Handle single channel response (SpeechToTextChunkResponseModel)
-        full_text = response_dict.get("text", "")
         language_code = response_dict.get("language_code")
         words_data = response_dict.get("words", [])
 
         # Convert words to internal format
         words = self._extract_words_from_api(words_data)
 
-        # Create a single segment with all words
-        if words:
-            segment = TranscriptSegment(
-                text=full_text, start=words[0].start, end=words[-1].end, words=words
-            )
-            segments.append(segment)
-        elif full_text:
-            # Fallback: create segment without word timestamps
-            segment = TranscriptSegment(text=full_text, start=0.0, end=0.0, words=[])
-            segments.append(segment)
+        # Create sentences from words
+        sentences = self._create_sentences_from_words(words)
 
         # Calculate duration
         duration = None
-        if segments and segments[-1].words:
-            duration = segments[-1].words[-1].end
+        if sentences and sentences[-1].words:
+            duration = sentences[-1].words[-1].end
 
-        return Transcript(segments=segments, language=language_code, duration=duration)
+        return Transcript(sentences=sentences, language=language_code, duration=duration)
 
     def _extract_words_from_api(
         self, words_data: list[Dict[str, Any]]
@@ -263,3 +251,69 @@ class ElevenLabsSTTService(SpeechToTextService):
                 cleaned_words.append(word)
 
         return cleaned_words
+
+    def _create_sentences_from_words(
+        self, words: list[WordTimestamp]
+    ) -> list[LLMTranscriptSentence]:
+        """
+        Create sentences from words by detecting sentence-ending punctuation.
+
+        A sentence ends when a word's last character is sentence-ending punctuation
+        (., ?, or !).
+
+        Args:
+            words: List of WordTimestamp objects with punctuated words
+
+        Returns:
+            List of LLMTranscriptSentence objects
+        """
+        if not words:
+            return []
+
+        # Sentence-ending punctuation characters
+        sentence_endings = {".", "!", "?"}
+
+        sentences: list[LLMTranscriptSentence] = []
+        current_words: list[WordTimestamp] = []
+        current_start: float | None = None
+
+        for word in words:
+            # Set start time if this is the first word in the sentence
+            if current_start is None:
+                current_start = word.start
+
+            # Add the word to current sentence
+            current_words.append(word)
+
+            # Check if the word ends with sentence-ending punctuation
+            word_text = word.word.rstrip()  # Remove trailing whitespace
+            if word_text and word_text[-1] in sentence_endings:
+                # Complete the current sentence
+                if current_words and current_start is not None:
+                    sentence_text = " ".join(w.word for w in current_words)
+                    sentences.append(
+                        LLMTranscriptSentence(
+                            sentence=sentence_text,
+                            start=current_start,
+                            end=word.end,
+                            words=current_words.copy(),
+                        )
+                    )
+
+                # Reset for next sentence
+                current_words = []
+                current_start = None
+
+        # Handle any remaining words that didn't end with punctuation
+        if current_words and current_start is not None:
+            sentence_text = " ".join(w.word for w in current_words)
+            sentences.append(
+                LLMTranscriptSentence(
+                    sentence=sentence_text,
+                    start=current_start,
+                    end=current_words[-1].end,
+                    words=current_words,
+                )
+            )
+
+        return sentences

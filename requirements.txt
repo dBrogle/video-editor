@@ -11,6 +11,9 @@ elevenlabs>=1.0.0
 # Video editing
 moviepy>=1.0.3
 
+# Image processing
+Pillow>=10.0.0
+
 # HTML parsing
 beautifulsoup4>=4.12.0
 
@@ -20,6 +23,8 @@ numpy>=1.24.0
 
 # Optional: for better type hints and validation
 typing-extensions>=4.8.0
+
+deepgram-sdk>=5.0.0
 
 # Development dependencies (optional)
 # pytest>=7.4.0
