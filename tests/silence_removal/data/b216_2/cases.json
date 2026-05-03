@@ -1,0 +1,95 @@
+{
+  "description": "Test cases from b216_2 (Data episode).",
+  "cases": [
+    {
+      "name": "why_important",
+      "description": "'Why is it so important?'",
+      "sentence_text": "Why is it so important?",
+      "original_start": 93.670006,
+      "original_end": 94.79,
+      "expected_start": 93.67,
+      "expected_end": 94.79
+    },
+    {
+      "name": "most_ai_learns",
+      "description": "'Most AI learns from data.'",
+      "sentence_text": "Most AI learns from data.",
+      "original_start": 104.09,
+      "original_end": 105.775,
+      "expected_start": 104.05,
+      "expected_end": 105.621
+    },
+    {
+      "name": "every_picture",
+      "description": "'every picture of a husky...'",
+      "sentence_text": "every picture of a husky...",
+      "original_start": 134.08,
+      "original_end": 138.205,
+      "expected_start": 134.04,
+      "expected_end": 138.026
+    },
+    {
+      "name": "so_bad_data",
+      "description": "'So bad data, bad AI.'",
+      "sentence_text": "So bad data, bad AI.",
+      "original_start": 140.26001,
+      "original_end": 142.42001,
+      "expected_start": 140.336,
+      "expected_end": 141.907
+    },
+    {
+      "name": "two_types",
+      "description": "'there's two types we use in the industry.'",
+      "sentence_text": "there's two types we use in the industry.",
+      "original_start": 165.07,
+      "original_end": 166.70499,
+      "expected_start": 165.07,
+      "expected_end": 166.705
+    },
+    {
+      "name": "and_unstructured",
+      "description": "'And unstructured data, like pictures of dogs.'",
+      "sentence_text": "And unstructured data, like pictures of dogs.",
+      "original_start": 173.47,
+      "original_end": 176.19,
+      "expected_start": 173.505,
+      "expected_end": 175.866
+    },
+    {
+      "name": "but_labeled",
+      "description": "'But more is the data can be labeled...'",
+      "sentence_text": "But more is the data can be labeled...",
+      "original_start": 177.79001,
+      "original_end": 181.23,
+      "expected_start": 177.791,
+      "expected_end": 181.132
+    },
+    {
+      "name": "wolves_huskies",
+      "description": "'and like the wolves and huskies...'",
+      "sentence_text": "and like the wolves and huskies...",
+      "original_start": 205.17,
+      "original_end": 209.81,
+      "expected_start": 205.252,
+      "expected_end": 209.783
+    },
+    {
+      "name": "but_robot_dogs",
+      "description": "'But robot dogs can be simulated...'",
+      "sentence_text": "But robot dogs can be simulated...",
+      "original_start": 221.685,
+      "original_end": 225.125,
+      "expected_start": 221.685,
+      "expected_end": 224.928
+    },
+    {
+      "name": "and_next_up",
+      "description": "'And next up is how AI learns from that data.'",
+      "sentence_text": "And next up is how AI learns from that data.",
+      "original_start": 241.47894,
+      "original_end": 243.95894,
+      "expected_start": 241.607,
+      "expected_end": 243.596
+    }
+  ]
+}

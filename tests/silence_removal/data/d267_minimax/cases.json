@@ -1,0 +1,32 @@
+{
+  "description": "Test cases from d267_minimax (MiniMax). Focus on sibilant start/end precision.",
+  "cases": [
+    {
+      "name": "sibilant_start_so_to_start",
+      "description": "Starts with 'So' — sibilant onset at ~301.32, algorithm must not clip the 's'",
+      "sentence_text": "So to start, I just asked it for trending content.",
+      "original_start": 301.315,
+      "original_end": 303.635,
+      "expected_start": 301.28,
+      "expected_end": 303.52
+    },
+    {
+      "name": "sibilant_end_news_38",
+      "description": "Ends with 'news.' — sibilant fades by ~308.27, should not trail into room tone",
+      "sentence_text": "But the result was more about products than research and news.",
+      "original_start": 305.41,
+      "original_end": 308.85,
+      "expected_start": 305.47,
+      "expected_end": 308.44
+    },
+    {
+      "name": "sibilant_start_so_i_asked",
+      "description": "Starts with 'So' — sibilant onset, must capture the full 's'",
+      "sentence_text": "So I asked it to focus more on research and news.",
+      "original_start": 314.13,
+      "original_end": 317.09,
+      "expected_start": 314.10,
+      "expected_end": 317.08
+    }
+  ]
+}

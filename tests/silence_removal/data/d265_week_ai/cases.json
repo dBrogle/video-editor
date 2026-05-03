@@ -1,0 +1,86 @@
+{
+  "description": "Test cases from d265_week_ai (This Week in AI). Golden answers derived from manual editing with audio analysis.",
+  "cases": [
+    {
+      "name": "text_ending_cutoff",
+      "description": "The 't' plosive at end of 'text.' gets cut off. Energy at 226.83-226.94",
+      "sentence_text": "and for translating human written text.",
+      "original_start": 225.12,
+      "original_end": 227.12,
+      "expected_start": 225.12,
+      "expected_end": 226.95
+    },
+    {
+      "name": "clean_intro",
+      "description": "Clean intro sentence - baseline",
+      "sentence_text": "Here's the highlights of this week in AI.",
+      "original_start": 36.81,
+      "original_end": 39.05,
+      "expected_start": 36.92,
+      "expected_end": 38.97
+    },
+    {
+      "name": "shop_for_you",
+      "description": "Sentence ending with 'you.' — trailing vowel with soft ending",
+      "sentence_text": "First, perplexity, release an agent that can shop for you.",
+      "original_start": 40.825,
+      "original_end": 44.265,
+      "expected_start": 40.84,
+      "expected_end": 43.74
+    },
+    {
+      "name": "cheers_short",
+      "description": "Very short closing 'Cheers.' with sibilant ending, peaks ~243.25",
+      "sentence_text": "Cheers.",
+      "original_start": 242.855,
+      "original_end": 243.335,
+      "expected_start": 242.855,
+      "expected_end": 243.30
+    },
+    {
+      "name": "sibilant_purchases",
+      "description": "Ends with 'purchases' — trailing sibilant 's', fades at ~73.63",
+      "sentence_text": "Now if you're a forward thinker, you're already thinking about how you can gaslight the AI into making more purchases",
+      "original_start": 68.205,
+      "original_end": 74.125,
+      "expected_start": 68.35,
+      "expected_end": 73.63
+    },
+    {
+      "name": "nasal_ending_happening",
+      "description": "Ends with 'happening.' — nasal 'ng' ending",
+      "sentence_text": "If agents shopping becomes common, I guarantee we will see this happening.",
+      "original_start": 99.204,
+      "original_end": 102.565,
+      "expected_start": 99.28,
+      "expected_end": 102.54
+    },
+    {
+      "name": "sibilant_mris",
+      "description": "Ends with 'MRIs.' — sibilant 's' ending",
+      "sentence_text": "and it's more accurate than MRIs.",
+      "original_start": 114.57,
+      "original_end": 116.65,
+      "expected_start": 114.57,
+      "expected_end": 116.60
+    },
+    {
+      "name": "plosive_october",
+      "description": "Ends with 'October.' — plosive 'r' ending (rhotic)",
+      "sentence_text": "And for the big headliner, Anthropic is considering IPO ing as soon as October.",
+      "original_start": 169.42,
+      "original_end": 173.74,
+      "expected_start": 169.55,
+      "expected_end": 173.65
+    },
+    {
+      "name": "plosive_content",
+      "description": "Ends with 'content,' — plosive 't' ending",
+      "sentence_text": "Wikipedia is banning AI generated content,",
+      "original_start": 213.445,
+      "original_end": 216.085,
+      "expected_start": 213.48,
+      "expected_end": 215.94
+    }
+  ]
+}

@@ -55,3 +55,6 @@ debug/
 
 # Assets
 assets/*
+
+# CC wsp assets
+cc_wsp/videos/**

@@ -1,0 +1,168 @@
+{
+  "description": "Test cases from d216_18 (Unsupervised Learning). Golden answers derived from manual editing with audio analysis.",
+  "cases": [
+    {
+      "name": "image_trailing_comma",
+      "description": "Speech drops at ~29.77. Algorithm should find this boundary correctly.",
+      "sentence_text": "LONs predicting the next word, image generators predicting the image,",
+      "original_start": 26.21,
+      "original_end": 30.05,
+      "expected_start": 26.29,
+      "expected_end": 29.77
+    },
+    {
+      "name": "supervised_cutoff",
+      "description": "Word 'supervised' must not get cut off at 'super-'. Sibilant/voiced energy until ~48.73",
+      "sentence_text": "But grouping people by taste doesn't have an answer, so it's called unsupervised learning because it's not supervised.",
+      "original_start": 42.195,
+      "original_end": 49.075,
+      "expected_start": 42.22,
+      "expected_end": 48.75
+    },
+    {
+      "name": "points_sibilant",
+      "description": "The 's' at end of 'points.' gets cut. Sibilant energy at 54.3-54.4",
+      "sentence_text": "The model just uses statistics to group similar points.",
+      "original_start": 51.315,
+      "original_end": 54.435,
+      "expected_start": 51.35,
+      "expected_end": 54.435
+    },
+    {
+      "name": "robot_dog_ending",
+      "description": "End of 'worked.' has quiet trailing energy. Full word ends ~100.9",
+      "sentence_text": "or a robot dog that learned by just trying to walk and doing more of that if it worked.",
+      "original_start": 96.5,
+      "original_end": 100.9,
+      "expected_start": 96.5,
+      "expected_end": 100.90
+    },
+    {
+      "name": "hey_short_exclamation",
+      "description": "Short exclamation with reverb tail. Creative timing case.",
+      "sentence_text": "hey.",
+      "original_start": 107.405,
+      "original_end": 108.205,
+      "expected_start": 107.50,
+      "expected_end": 108.00,
+      "tolerance": 0.25
+    },
+    {
+      "name": "customers_sibilant",
+      "description": "The 's' at end of 'customers.' gets cut off. Sibilant energy at 154.7-154.9",
+      "sentence_text": "The grouping customer ones just groups customers.",
+      "original_start": 152.34,
+      "original_end": 154.9,
+      "expected_start": 152.42,
+      "expected_end": 154.90
+    },
+    {
+      "name": "work_plosive",
+      "description": "The 'k' at end of 'work?' — plosive release with aspiration trail",
+      "sentence_text": "But how do LLNs work?",
+      "original_start": 159.065,
+      "original_end": 161.305,
+      "expected_start": 159.065,
+      "expected_end": 160.95
+    },
+    {
+      "name": "clean_sentence_short",
+      "description": "Short clean sentence - baseline for normal trimming",
+      "sentence_text": "and so on.",
+      "original_start": 31.41,
+      "original_end": 32.53,
+      "expected_start": 31.41,
+      "expected_end": 32.21
+    },
+    {
+      "name": "clean_sentence_medium",
+      "description": "Medium clean sentence - baseline for normal trimming",
+      "sentence_text": "Most AI learns from data that has an answer.",
+      "original_start": 22.085,
+      "original_end": 24.485,
+      "expected_start": 22.085,
+      "expected_end": 24.42
+    },
+    {
+      "name": "question_ending_you",
+      "description": "Ends with 'you?' — trailing vowel with rising intonation, dies at ~8.46",
+      "sentence_text": "How do Netflix and Spotify know what to recommend to you?",
+      "original_start": 5.6,
+      "original_end": 8.88,
+      "expected_start": 5.71,
+      "expected_end": 8.46
+    },
+    {
+      "name": "liquid_ending_learn",
+      "description": "Ends with 'learn.' — liquid consonant with smooth decay",
+      "sentence_text": "Well, they use one of the least intuitive ways that AI can learn.",
+      "original_start": 10.0,
+      "original_end": 13.44,
+      "expected_start": 10.04,
+      "expected_end": 13.37
+    },
+    {
+      "name": "plosive_sibilant_detection",
+      "description": "Ends with 'detection.' — plosive 'tion' followed by nasal 'n', drops at ~58.75",
+      "sentence_text": "And this is also used by banks for fraud detection.",
+      "original_start": 56.15,
+      "original_end": 59.11,
+      "expected_start": 56.30,
+      "expected_end": 58.70
+    },
+    {
+      "name": "nasal_ending_learning",
+      "description": "Ends with 'learning?' — nasal 'ng' trails off around 73.90",
+      "sentence_text": "Which one is unsupervised learning?",
+      "original_start": 72.20,
+      "original_end": 74.36,
+      "expected_start": 72.20,
+      "expected_end": 73.90
+    },
+    {
+      "name": "trailing_comma_is",
+      "description": "Ends with 'is,' — short trailing sibilant",
+      "sentence_text": "And the answer is,",
+      "original_start": 102.69,
+      "original_end": 104.12,
+      "expected_start": 102.76,
+      "expected_end": 104.01
+    },
+    {
+      "name": "short_choose_one",
+      "description": "Very short sentence 'Choose one.' with clean ending",
+      "sentence_text": "Choose one.",
+      "original_start": 110.44,
+      "original_end": 111.08,
+      "expected_start": 110.44,
+      "expected_end": 110.98
+    },
+    {
+      "name": "sibilant_unsupervised",
+      "description": "Ends with 'unsupervised.' — trailing sibilant 'd' sound",
+      "sentence_text": "It's unsupervised.",
+      "original_start": 135.99,
+      "original_end": 137.03,
+      "expected_start": 136.03,
+      "expected_end": 136.89
+    },
+    {
+      "name": "long_sentence_next",
+      "description": "Long sentence ending with 'next.' — plosive 't' at end. Very little trailing silence in original.",
+      "sentence_text": "Well, they use the combination of supervised, self supervised, and reinforcement learning, and the last two are up next.",
+      "original_start": 162.82,
+      "original_end": 168.67,
+      "expected_start": 162.82,
+      "expected_end": 168.67
+    },
+    {
+      "name": "cheers_d216",
+      "description": "Very short 'Cheers.' — sibilant ending, only 0.4s",
+      "sentence_text": "Cheers.",
+      "original_start": 168.67,
+      "original_end": 169.06,
+      "expected_start": 168.67,
+      "expected_end": 169.04
+    }
+  ]
+}

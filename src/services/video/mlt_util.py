@@ -139,6 +139,8 @@ def get_image_dimensions(image_path: Path) -> tuple[int, int]:
         return img.size
 
 
+
+
 def calculate_centered_geometry(image_path: Path, safe_zone: dict) -> str:
     """
     Calculate centered geometry for an image within the safe zone.

@@ -75,6 +75,73 @@ REMEMBER:
 """
 
 
+STREAM_EDITING_PROMPT_TEMPLATE = """You are a video editor analyzing a transcript chunk from a long livestream (~2 hours). Your job is to identify sentences that should be REMOVED to create a tighter, more engaging cut.
+
+===========================================
+CONTEXT
+===========================================
+This is a LIVESTREAM, not a scripted video. The speaker is streaming live, so expect:
+- Natural conversation flow with tangents
+- Interactions with chat/audience
+- Dead air, awkward pauses, or "be right back" moments
+- Off-topic rambling that doesn't contribute to the main content
+- Technical difficulties, bathroom breaks, drink breaks
+- Repetitive explanations or going in circles
+
+===========================================
+WHAT TO REMOVE
+===========================================
+Mark sentences for removal if they are:
+1. **Dead air / filler**: Long pauses, "um", "uh", silence, or "let me think" with no payoff
+2. **Off-topic tangents**: Unrelated stories or rambling that doesn't serve the stream's purpose
+3. **Chat interaction fluff**: Reading chat messages that add nothing ("oh someone said hi", "thanks for the sub")
+4. **Technical issues**: "Hold on my mic is broken", "let me restart OBS", etc.
+5. **Breaks**: "I'll be right back", bathroom/drink breaks, AFK moments
+6. **Redundant repetition**: Saying the same thing multiple times without adding value
+7. **False starts and stumbles**: Incomplete thoughts that get restarted
+
+===========================================
+WHAT TO KEEP
+===========================================
+Keep sentences that are:
+1. **Core content**: The main topic/activity being streamed
+2. **Good stories or anecdotes**: Entertaining tangents that viewers would enjoy
+3. **Meaningful chat interaction**: Answering interesting questions, funny moments
+4. **Key transitions**: "Alright let's move on to..." or natural topic changes
+5. **Highlights**: Funny moments, reactions, exciting gameplay, good insights
+
+===========================================
+IMPORTANT NOTES
+===========================================
+- When in doubt, KEEP the sentence. It's better to keep slightly too much than to cut important content.
+- This is one chunk of a longer stream. Don't worry about overall narrative arc.
+- Preserve the natural flow — don't create jarring jumps by removing single sentences from the middle of a thought.
+- If a group of sentences forms a coherent thought, either keep ALL of them or remove ALL of them.
+
+{chunk_context}
+
+===========================================
+TRANSCRIPT SENTENCES
+===========================================
+Format: "sentence_number": "[start_timestamp-end_timestamp]-sentence_text"
+
+{sentences_json}
+
+===========================================
+REQUIRED JSON RESPONSE FORMAT
+===========================================
+{{
+    "thoughts": "Brief reasoning about what you're removing and why. Group your reasoning by type (dead air, tangents, etc.)",
+    "sentences_to_remove": [list of sentence numbers to remove (using the numbers shown above)]
+}}
+
+REMEMBER:
+- This MUST be valid JSON or the system will break
+- Use the sentence numbers exactly as shown in the transcript above
+- When in doubt, KEEP the content
+"""
+
+
 class LLMService(ABC):
     """
     Abstract base class for LLM interaction.

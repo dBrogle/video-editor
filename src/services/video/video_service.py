@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 import librosa
 import time
+from scipy.signal import butter, sosfilt
+from scipy.ndimage import maximum_filter1d
 from moviepy import VideoFileClip, concatenate_videoclips
 
 # Set MoviePy config to use absolute paths
@@ -44,13 +46,23 @@ from src.models import (
     LLMTranscriptSentence,
 )
 
-# Silence detection constants
-SPEECH_LEVEL_PERCENTILE = 85  # Percentile of RMS dB to use as speech level reference
-SILENCE_THRESHOLD_OFFSET_DB = (
-    15  # dB below speech level to consider as silence (15-25 typical range)
-)
-SILENCE_PADDING = 0.02  # Seconds to pad before/after detected speech
-CLIP_DB_DIFFERENCE_THRESHOLD = 5  # If clip's speech level differs from video by more than this (dB), use video-level threshold
+# Silence detection constants (multiband_zcr algorithm)
+SPEECH_LEVEL_PERCENTILE = 85
+RMS_OFFSET_DB = 18
+NOISE_FLOOR_MARGIN_DB = 8
+HF_OFFSET_DB = 20
+ZCR_CENTROID_MIN = 0.08
+CENTROID_MIN = 1800
+END_HOLD_FRAMES = 14
+START_PADDING = 0.02
+END_PADDING = 0.01
+HF_DECLINE_LIMIT = 14
+CLIP_DB_DIFFERENCE_THRESHOLD = 5
+MAX_EXTENSION_SEC = 0.25
+POST_GAP_RMS_LIMIT = 8
+FLUX_THRESHOLD = 0.2
+DECLINE_RATE_THRESHOLD = 2.5
+PRE_ROLL = 0.3  # seconds before sentence to search for earlier onset
 
 
 class VideoService:
@@ -312,7 +324,7 @@ class VideoService:
 
         # Calculate video-level speech threshold
         speech_level_db = np.percentile(rms_db, SPEECH_LEVEL_PERCENTILE)
-        video_threshold = speech_level_db - SILENCE_THRESHOLD_OFFSET_DB
+        video_threshold = speech_level_db - RMS_OFFSET_DB
 
         # Cache the result
         self._video_level_threshold_cache[cache_key] = video_threshold
@@ -330,154 +342,223 @@ class VideoService:
         sentence_index: int,
     ) -> AdjustedSentence:
         """
-        Detect speech boundaries by analyzing audio amplitude using librosa.
-        Returns adjusted (start, end) timestamps with silence trimmed.
+        Detect speech boundaries using multiband analysis with spectral flux
+        onset detection and energy derivative end detection.
 
-        Args:
-            audio_path: Path to the extracted audio file
-            start: Start time of sentence in original video (seconds)
-            end: End time of sentence in original video (seconds)
-            sentence_index: Optional sentence index for debugging (1-based)
-
-        Returns:
-            Tuple of (adjusted_start, adjusted_end) in seconds relative to original video
+        Uses different strategies for starts vs ends:
+        - Starts: Multi-signal (RMS, HF+noise, consonant, spectral flux) with
+          pre-roll backward refinement for onsets slightly before Deepgram timestamps
+        - Ends: Multi-signal — extends through trailing consonants using:
+          - High-frequency energy (>3kHz) for sibilants (s, z)
+          - ZCR + spectral centroid for plosives (k, t, p)
+          - Energy derivative to detect sustained signal decline
+          - HF decline detection to stop when consonant fades into room noise
         """
         start = sentence.start
         end = sentence.end
-        # Load only the specific time range directly with librosa from the audio file
+        frame_length = 512
+        hop_length = 128  # Higher resolution for boundary detection
+
+        # Load with pre-roll so the algorithm can find onsets that Deepgram
+        # timestamps miss (often 100-200ms late)
+        load_start = max(0, start - PRE_ROLL)
+        actual_pre_roll = start - load_start
+
         audio_array, sr = librosa.load(
-            str(audio_path),
-            sr=22050,
-            mono=True,
-            offset=start,
-            duration=end - start,
+            str(audio_path), sr=22050, mono=True,
+            offset=load_start, duration=(end - start) + actual_pre_roll,
         )
 
-        # Calculate RMS (Root Mean Square) energy per frame
-        frame_length = 512  # ~23ms at 22050 Hz
-        hop_length = 256  # 50% overlap
+        time_per_frame = hop_length / sr
+        pre_roll_frames = int(actual_pre_roll / time_per_frame)
 
-        rms = librosa.feature.rms(
-            y=audio_array, frame_length=frame_length, hop_length=hop_length
-        )[0]
-
-        # Convert to dB
+        # === Compute features ===
+        rms = librosa.feature.rms(y=audio_array, frame_length=frame_length, hop_length=hop_length)[0]
         rms_db = librosa.amplitude_to_db(rms, ref=np.max)
 
-        # ADAPTIVE THRESHOLDING
-        # Find the speech level (use configurable percentile - typically 75th-85th)
-        # This captures the typical speech energy level
-        clip_speech_level_db = np.percentile(rms_db, SPEECH_LEVEL_PERCENTILE)
-        clip_threshold = clip_speech_level_db - SILENCE_THRESHOLD_OFFSET_DB
+        # High-frequency RMS (>3kHz) — catches sibilants and plosives
+        nyquist = sr / 2
+        sos_hf = butter(4, min(3000 / nyquist, 0.99), btype='high', output='sos')
+        audio_hf = sosfilt(sos_hf, audio_array)
+        rms_hf = librosa.feature.rms(y=audio_hf, frame_length=frame_length, hop_length=hop_length)[0]
+        rms_hf_db = librosa.amplitude_to_db(rms_hf, ref=np.max)
 
-        # Get video-level threshold for comparison
+        # Zero crossing rate and spectral centroid — high for unvoiced consonants
+        zcr = librosa.feature.zero_crossing_rate(audio_array, frame_length=frame_length, hop_length=hop_length)[0]
+        centroid = librosa.feature.spectral_centroid(y=audio_array, sr=sr, n_fft=frame_length, hop_length=hop_length)[0]
+
+        # Spectral flux (positive only — detects energy appearing = speech onsets)
+        S = np.abs(librosa.stft(audio_array, n_fft=frame_length, hop_length=hop_length))
+        flux_raw = np.sum(np.maximum(np.diff(S, axis=1), 0), axis=0)
+        flux_raw = np.pad(flux_raw, (1, 0))
+
+        n_frames = len(rms_db)
+        if len(flux_raw) > n_frames:
+            flux_raw = flux_raw[:n_frames]
+        elif len(flux_raw) < n_frames:
+            flux_raw = np.pad(flux_raw, (0, n_frames - len(flux_raw)))
+
+        # Normalize flux relative to original window only
+        flux_orig = flux_raw[pre_roll_frames:]
+        flux_max = np.max(flux_orig) if len(flux_orig) > 0 else np.max(flux_raw)
+        flux_norm = flux_raw / flux_max if flux_max > 0 else flux_raw
+        mask_flux = flux_norm > FLUX_THRESHOLD
+
+        # Energy derivative (smoothed) — for detecting sustained decline at ends
+        from scipy.ndimage import uniform_filter1d
+        rms_smooth = uniform_filter1d(rms_db, size=5)
+        rms_deriv = np.diff(rms_smooth, prepend=rms_smooth[0])
+
+        # === Compute thresholds (from original window only, not pre-roll) ===
         video_threshold = self._get_video_level_speech_threshold(audio_path)
+        rms_db_orig = rms_db[pre_roll_frames:]
+        rms_hf_db_orig = rms_hf_db[pre_roll_frames:]
 
-        # Check if clip's speech level deviates significantly from video level
-        # If the clip is mostly silence (e.g., >80% silence), its speech level will be much lower
-        # In that case, use the video-level threshold instead
-        speech_level_lower = video_threshold - clip_threshold
-
-        threshold_source = ""
-        if speech_level_lower > CLIP_DB_DIFFERENCE_THRESHOLD:
-            # Clip is mostly quiet - use video-level threshold
-            print("Using video level threshold")
-            silence_threshold = video_threshold
+        clip_speech_level = np.percentile(rms_db_orig, SPEECH_LEVEL_PERCENTILE)
+        clip_rms_threshold = clip_speech_level - RMS_OFFSET_DB
+        if video_threshold - clip_rms_threshold > CLIP_DB_DIFFERENCE_THRESHOLD:
+            rms_threshold = video_threshold
             threshold_source = "video-level"
         else:
-            # Clip is representative - use clip-level threshold
-            silence_threshold = clip_threshold
+            rms_threshold = clip_rms_threshold
             threshold_source = "clip-level"
 
-        # DEBUG: Output for sentences 3, 4, 5
-        if sentence_index in [3, 4, 5]:
-            # Calculate sampling interval to show ~100th of second (0.01s)
-            # Each RMS frame represents hop_length/sr seconds
-            time_per_frame = hop_length / sr
-            samples_per_0_01s = max(1, int(0.01 / time_per_frame))
+        noise_floor = np.percentile(rms_db_orig, 10)
+        noise_threshold = noise_floor + NOISE_FLOOR_MARGIN_DB
 
-            print(f"\n{'=' * 60}")
-            print(f"DEBUG: Sentence {sentence_index}")
-            print(
-                f"Time range: {start:.3f}s - {end:.3f}s (duration: {end - start:.3f}s)"
-            )
-            print(f"Audio array length: {len(audio_array)} samples at {sr} Hz")
-            print(f"RMS frames: {len(rms)} frames")
-            print(f"{'=' * 60}")
+        hf_speech_level = np.percentile(rms_hf_db_orig, SPEECH_LEVEL_PERCENTILE)
+        hf_threshold = hf_speech_level - HF_OFFSET_DB
 
-            # Show percentile analysis
-            print(f"\nAdaptive Threshold Analysis:")
-            print(f"  RMS dB percentiles:")
-            for p in [50, 60, 70, 75, 80, 85, 90, 95]:
-                print(f"    {p}th: {np.percentile(rms_db, p):.2f} dB")
-            print(f"  Using {threshold_source} threshold")
-            print(
-                f"  Speech level ({SPEECH_LEVEL_PERCENTILE}th percentile): {silence_threshold:.2f} dB"
-            )
-            print(
-                f"  Silence threshold (speech - {SILENCE_THRESHOLD_OFFSET_DB}dB): {silence_threshold:.2f} dB"
-            )
-            print(
-                f"  Frames above threshold: {np.sum(rms_db > silence_threshold)}/{len(rms_db)}"
-            )
+        # === Build speech masks ===
+        mask_rms = rms_db > rms_threshold
+        mask_hf = rms_hf_db > hf_threshold
+        mask_consonant = (zcr > ZCR_CENTROID_MIN) & (centroid > CENTROID_MIN) & (rms_db > noise_threshold)
 
-            print(f"\nRaw Statistics:")
-            print(f"  RMS dB Min: {rms_db.min():.2f}")
-            print(f"  RMS dB Max: {rms_db.max():.2f}")
-            print(f"  RMS dB Mean: {rms_db.mean():.2f}")
-            print(f"  RMS dB Median: {np.median(rms_db):.2f}")
-            print(f"{'=' * 60}\n")
+        # Start detection: multi-signal + spectral flux
+        # HF for starts requires noise floor check (prevents residual HF from
+        # previous sentences triggering false starts)
+        mask_hf_start = mask_hf & (rms_db > noise_threshold)
+        # Suppress flux near pre-roll boundary
+        mask_flux_clean = mask_flux.copy()
+        if pre_roll_frames > 0:
+            mask_flux_clean[:pre_roll_frames + 5] = False
+        start_mask = mask_rms | mask_hf_start | mask_consonant | mask_flux_clean
 
-        # Find first and last frames above threshold
-        speech_frames = np.where(rms_db > silence_threshold)[0]
+        # End detection: combined mask (no flux — it's noisy for offsets)
+        end_mask = mask_rms | mask_hf | mask_consonant
 
-        if len(speech_frames) == 0:
-            # No speech detected, return original times
-            if sentence_index:
-                print(
-                    f"  Sentence {sentence_index}: No speech detected, keeping original {start:.2f}s-{end:.2f}s"
+        # === Find start frame in original window, refine backward ===
+        start_region = start_mask[pre_roll_frames:]
+        start_frames_in_region = np.where(start_region)[0]
+        end_frames = np.where(end_mask)[0]
+
+        if len(start_frames_in_region) == 0 or len(end_frames) == 0:
+            # Try full range
+            all_start = np.where(start_mask)[0]
+            if len(all_start) == 0 or len(end_frames) == 0:
+                if sentence_index:
+                    print(f"  Sentence {sentence_index}: No speech detected, keeping original")
+                return AdjustedSentence(
+                    original_start=sentence.start, original_end=sentence.end,
+                    adjusted_start=sentence.start, adjusted_end=sentence.end,
+                    text=sentence.sentence, index=str(sentence_index),
+                    threshold_source=threshold_source,
                 )
-            return AdjustedSentence(
-                original_start=sentence.start,
-                original_end=sentence.end,
-                adjusted_start=sentence.start,
-                adjusted_end=sentence.end,
-                text=sentence.sentence,
-                index=str(sentence_index),
-                threshold_source=threshold_source,
-            )
+            first_frame = all_start[0]
+        else:
+            first_frame_in_region = start_frames_in_region[0] + pre_roll_frames
+            first_frame = first_frame_in_region
 
-        first_speech_frame = speech_frames[0]
-        last_speech_frame = speech_frames[-1]
+            # Refine backward into pre-roll if speech starts right at boundary
+            if first_frame_in_region - pre_roll_frames < 3 and pre_roll_frames > 0:
+                # Verify sustained speech (3+ consecutive RMS frames)
+                consecutive = 0
+                for f in range(first_frame_in_region, min(first_frame_in_region + 5, n_frames)):
+                    if mask_rms[f]:
+                        consecutive += 1
+                    else:
+                        break
+                if consecutive >= 3:
+                    max_backward_frames = int(0.05 / time_per_frame)
+                    backward_limit = max(0, first_frame_in_region - max_backward_frames)
+                    gap = 0
+                    for f in range(first_frame_in_region - 1, backward_limit - 1, -1):
+                        if mask_rms[f]:
+                            first_frame = f
+                            gap = 0
+                        else:
+                            gap += 1
+                            if gap > 1:
+                                break
 
-        # Convert frames back to time offsets
-        start_offset = (first_speech_frame * hop_length) / sr
-        end_offset = ((last_speech_frame + 1) * hop_length) / sr
+        # === End detection: extend past last RMS frame ===
+        rms_frames = np.where(mask_rms)[0]
+        last_rms_frame = rms_frames[-1] if len(rms_frames) > 0 else end_frames[-1]
+        last_frame = last_rms_frame
 
-        # Apply to original timestamps
-        adjusted_start = start + start_offset
-        adjusted_end = start + end_offset
+        search_end = min(n_frames, last_rms_frame + int(0.5 / time_per_frame))
+        gap_count = 0
+        total_gap_frames = 0
+        peak_hf = rms_hf_db[last_rms_frame] if last_rms_frame < len(rms_hf_db) else -80
+        hf_has_declined = False
+        max_extension_frames = int(MAX_EXTENSION_SEC / time_per_frame)
 
-        # Apply padding (but keep within original sentence bounds)
-        adjusted_start = max(start, adjusted_start - SILENCE_PADDING)
-        adjusted_end = min(end, adjusted_end + SILENCE_PADDING)
+        for f in range(last_rms_frame + 1, search_end):
+            # Energy derivative: steep sustained decline = speech ending
+            if f > last_rms_frame + 3:
+                recent_deriv = np.mean(rms_deriv[f-3:f+1])
+                if recent_deriv < -DECLINE_RATE_THRESHOLD and rms_db[f] < rms_threshold:
+                    break
+
+            if end_mask[f]:
+                if not hf_has_declined and rms_hf_db[f] > peak_hf:
+                    peak_hf = rms_hf_db[f]
+
+                hf_decline = peak_hf - rms_hf_db[f]
+
+                if hf_decline > HF_DECLINE_LIMIT:
+                    hf_has_declined = True
+
+                if hf_decline > HF_DECLINE_LIMIT * 1.2 and rms_db[f] < rms_threshold:
+                    break
+
+                if hf_has_declined and hf_decline < HF_DECLINE_LIMIT * 0.3 and rms_db[f] < rms_threshold:
+                    break
+
+                if f - last_rms_frame > max_extension_frames:
+                    break
+
+                if total_gap_frames > END_HOLD_FRAMES * 2:
+                    rms_speech = np.percentile(rms_db, SPEECH_LEVEL_PERCENTILE)
+                    if rms_db[f] < rms_speech - POST_GAP_RMS_LIMIT * 2:
+                        break
+
+                last_frame = f
+                gap_count = 0
+            else:
+                gap_count += 1
+                total_gap_frames += 1
+                if gap_count > END_HOLD_FRAMES:
+                    break
+
+        # Convert to absolute timestamps
+        start_offset = (first_frame * hop_length) / sr
+        end_offset = ((last_frame + 1) * hop_length) / sr
+
+        adjusted_start = max(load_start, load_start + start_offset - START_PADDING)
+        adjusted_end = min(end, load_start + end_offset + END_PADDING)
 
         if sentence_index:
-            trimmed_start = adjusted_start - start
-            trimmed_end = end - adjusted_end
             print(
-                f"  Sentence {sentence_index}: Trimmed {trimmed_start:.3f}s from start, {trimmed_end:.3f}s from end"
+                f"  Sentence {sentence_index}: Trimmed {adjusted_start - start:.3f}s from start, "
+                f"{end - adjusted_end:.3f}s from end"
             )
-            print(
-                f"    {start:.2f}s -> {adjusted_start:.2f}s to {end:.2f}s -> {adjusted_end:.2f}s"
-            )
+            print(f"    {start:.2f}s -> {adjusted_start:.2f}s to {end:.2f}s -> {adjusted_end:.2f}s")
+
         return AdjustedSentence(
-            original_start=sentence.start,
-            original_end=sentence.end,
-            adjusted_start=adjusted_start,
-            adjusted_end=adjusted_end,
-            text=sentence.sentence,
-            index=str(sentence_index),
+            original_start=sentence.start, original_end=sentence.end,
+            adjusted_start=adjusted_start, adjusted_end=adjusted_end,
+            text=sentence.sentence, index=str(sentence_index),
             threshold_source=threshold_source,
         )
 

@@ -1,3 +1,6 @@
+import argparse
+import sys
+
 from src.services.local_saver import LocalSaverService
 from src.util import extract_filename_without_extension, get_input_video_path, reset_pipeline
 from src.pipeline import (
@@ -14,11 +17,36 @@ from src.pipeline import (
     stage_11_create_1080p_video_with_images,
     stage_12_create_full_res_video_single_pass,
 )
+from src.stream_pipeline import (
+    StreamSaver,
+    stream_stage_1_preprocess,
+    stream_stage_2_transcribe,
+    stream_stage_3_llm_edit,
+    stream_stage_4_iterate_selection,
+    stream_stage_5_adjust_timestamps,
+    stream_stage_6_iterate_timestamps,
+    stream_stage_7_final_render,
+)
 
 
-def display_menu() -> list[int] | str:
+def select_pipeline() -> str:
     print("\n" + "=" * 50)
     print("VIDEO EDITING PIPELINE")
+    print("=" * 50)
+    print("\nSelect pipeline:")
+    print("  1. Shorts (scripted video with Google Doc images)")
+    print("  2. Streams (long-form livestream cutting)")
+
+    while True:
+        choice = input("\nYour selection (1 or 2): ").strip()
+        if choice in ("1", "2"):
+            return "shorts" if choice == "1" else "streams"
+        print("Error: Please enter 1 or 2")
+
+
+def display_shorts_menu() -> list[int] | str:
+    print("\n" + "=" * 50)
+    print("SHORTS PIPELINE")
     print("=" * 50)
     print("\nAvailable steps:")
     print("  0. Run all steps (1-11, using 1080p approach)")
@@ -62,6 +90,46 @@ def display_menu() -> list[int] | str:
             )
 
 
+def display_streams_menu() -> list[int] | str:
+    print("\n" + "=" * 50)
+    print("STREAMS PIPELINE")
+    print("=" * 50)
+    print("\nAvailable steps:")
+    print("  0. Run all steps (1-7)")
+    print("  1. Preprocess stream (downsample proxy, extract audio)")
+    print("  2. Transcribe stream audio")
+    print("  3. Chunked LLM edit (identify sections to remove)")
+    print("  4. Iterate on sentence selection")
+    print("  5. Generate adjusted sentences (timestamp trimming)")
+    print("  6. Iterate on adjusted sentences (timestamp fine-tuning)")
+    print("  7. Final render (cuts only, native resolution)")
+    print("\nUtilities:")
+    print("  r. Reset pipeline (delete all generated files)")
+    print("\nEnter step numbers separated by commas (e.g., 1,2,3)")
+    print("or enter 0 to run all steps, or 'r' to reset.")
+
+    while True:
+        choice = input("\nYour selection: ").strip().lower()
+
+        if choice == "r":
+            return "r"
+
+        if choice == "0":
+            return [1, 2, 3, 4, 5, 6, 7]
+
+        try:
+            steps = [int(s.strip()) for s in choice.split(",")]
+            valid_steps = [0, 1, 2, 3, 4, 5, 6, 7]
+            if all(step in valid_steps for step in steps):
+                return sorted(set(steps))
+            else:
+                print("Error: Please enter valid step numbers (0-7) or 'r'")
+        except ValueError:
+            print(
+                "Error: Invalid input. Please enter numbers separated by commas or 'r'"
+            )
+
+
 def get_input_filename() -> str:
     print("\n" + "-" * 50)
 
@@ -88,7 +156,7 @@ def get_input_filename() -> str:
         input_path = get_input_video_path(base_name)
 
         if input_path.exists():
-            print(f"✓ Found: {input_path.name}")
+            print(f"Found: {input_path.name}")
             saver.save_last_filename(base_name)
             return base_name
         else:
@@ -99,11 +167,11 @@ def get_input_filename() -> str:
                 raise FileNotFoundError(f"Video file not found: {filename}")
 
 
-def run_pipeline(
+def run_shorts_pipeline(
     base_name: str, steps: list[int], skip_silence_removal: bool = False
 ) -> None:
     print("\n" + "=" * 50)
-    print(f"RUNNING PIPELINE: {base_name}")
+    print(f"RUNNING SHORTS PIPELINE: {base_name}")
     print("=" * 50)
 
     saver = LocalSaverService()
@@ -163,36 +231,114 @@ def run_pipeline(
         try:
             step_func()
         except Exception as e:
-            print(f"\n✗ Error in step {step_num}: {str(e)}")
+            print(f"\nError in step {step_num}: {str(e)}")
             print("Pipeline stopped due to error.")
             raise
 
     print("\n" + "=" * 50)
-    print("✓ PIPELINE COMPLETE")
+    print("SHORTS PIPELINE COMPLETE")
+    print("=" * 50)
+
+
+def run_streams_pipeline(base_name: str, steps: list[int]) -> None:
+    print("\n" + "=" * 50)
+    print(f"RUNNING STREAMS PIPELINE: {base_name}")
+    print("=" * 50)
+
+    saver = StreamSaver()
+
+    step_functions = {
+        1: (
+            "Preprocess stream",
+            lambda: stream_stage_1_preprocess(base_name),
+        ),
+        2: (
+            "Transcribe stream audio",
+            lambda: stream_stage_2_transcribe(base_name, saver),
+        ),
+        3: (
+            "Chunked LLM edit",
+            lambda: stream_stage_3_llm_edit(base_name, saver),
+        ),
+        4: (
+            "Iterate on sentence selection",
+            lambda: stream_stage_4_iterate_selection(base_name, saver),
+        ),
+        5: (
+            "Generate adjusted sentences",
+            lambda: stream_stage_5_adjust_timestamps(base_name, saver),
+        ),
+        6: (
+            "Iterate on adjusted sentences",
+            lambda: stream_stage_6_iterate_timestamps(base_name, saver),
+        ),
+        7: (
+            "Final render",
+            lambda: stream_stage_7_final_render(base_name, saver),
+        ),
+    }
+
+    for step_num in steps:
+        step_name, step_func = step_functions[step_num]
+        print(f"\n--- Step {step_num}: {step_name} ---")
+
+        try:
+            step_func()
+        except Exception as e:
+            print(f"\nError in step {step_num}: {str(e)}")
+            print("Pipeline stopped due to error.")
+            raise
+
+    print("\n" + "=" * 50)
+    print("STREAMS PIPELINE COMPLETE")
     print("=" * 50)
 
 
 def main() -> None:
     try:
-        menu_choice = display_menu()
+        pipeline = select_pipeline()
         base_name = get_input_filename()
 
-        if menu_choice == "r":
-            print("\n" + "=" * 50)
-            print("RESET PIPELINE")
-            print("=" * 50)
-            print(f"\nThis will delete all generated files for: {base_name}")
-            print("The original video file will be preserved.")
-            confirm = input("\nAre you sure? (y/N): ").strip().lower()
+        if pipeline == "shorts":
+            menu_choice = display_shorts_menu()
 
-            if confirm == "y" or confirm == "yes":
-                reset_pipeline(base_name)
-                print("\n✓ Pipeline reset complete!")
-            else:
-                print("\nReset cancelled.")
-            return
+            if menu_choice == "r":
+                print("\n" + "=" * 50)
+                print("RESET PIPELINE")
+                print("=" * 50)
+                print(f"\nThis will delete all generated files for: {base_name}")
+                print("The original video file will be preserved.")
+                confirm = input("\nAre you sure? (y/N): ").strip().lower()
 
-        run_pipeline(base_name, menu_choice, skip_silence_removal=False)
+                if confirm == "y" or confirm == "yes":
+                    reset_pipeline(base_name)
+                    print("\nPipeline reset complete!")
+                else:
+                    print("\nReset cancelled.")
+                return
+
+            run_shorts_pipeline(base_name, menu_choice, skip_silence_removal=False)
+
+        else:  # streams
+            menu_choice = display_streams_menu()
+
+            if menu_choice == "r":
+                print("\n" + "=" * 50)
+                print("RESET PIPELINE")
+                print("=" * 50)
+                print(f"\nThis will delete all stream_ files for: {base_name}")
+                print("The original video file will be preserved.")
+                confirm = input("\nAre you sure? (y/N): ").strip().lower()
+
+                if confirm == "y" or confirm == "yes":
+                    reset_pipeline(base_name)
+                    print("\nPipeline reset complete!")
+                else:
+                    print("\nReset cancelled.")
+                return
+
+            run_streams_pipeline(base_name, menu_choice)
+
     except KeyboardInterrupt:
         print("\n\nPipeline cancelled by user.")
     except Exception as e:
@@ -200,5 +346,55 @@ def main() -> None:
         raise
 
 
+def cli() -> None:
+    """CLI entry point for running individual pipeline steps or tools."""
+    parser = argparse.ArgumentParser(description="Video editing pipeline CLI")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Run pipeline step(s)
+    run_parser = subparsers.add_parser("run", help="Run pipeline step(s)")
+    run_parser.add_argument("video", help="Video base name (e.g., d216_18)")
+    run_parser.add_argument("steps", help="Comma-separated step numbers (e.g., 5,6)")
+    run_parser.add_argument("--pipeline", default="shorts", choices=["shorts", "streams"])
+    run_parser.add_argument("--skip-silence-removal", action="store_true")
+
+    # Audio levels tool
+    audio_parser = subparsers.add_parser("audio-levels", help="Get audio RMS levels for a time range")
+    audio_parser.add_argument("video", help="Video base name")
+    audio_parser.add_argument("start", type=float, help="Start time in seconds")
+    audio_parser.add_argument("end", type=float, help="End time in seconds")
+    audio_parser.add_argument("--resolution", type=float, default=0.01, help="Time resolution in seconds (default: 0.01)")
+
+    # Word timestamps tool
+    words_parser = subparsers.add_parser("word-timestamps", help="Get word timestamps for a sentence")
+    words_parser.add_argument("video", help="Video base name")
+    words_parser.add_argument("sentence", type=int, help="Sentence index (from transcription, 1-based)")
+
+    # Split sentence tool
+    split_parser = subparsers.add_parser("split-sentence", help="Split a sentence in adjusted_sentences at a timestamp")
+    split_parser.add_argument("video", help="Video base name")
+    split_parser.add_argument("sentence_index", help="Sentence index in adjusted sentences (e.g., '10')")
+    split_parser.add_argument("split_time", type=float, help="Timestamp to split at (seconds)")
+    split_parser.add_argument("--target", default="s5", choices=["s5", "s6"], help="Which adjusted sentences file to modify")
+
+    # Preview video tool
+    preview_parser = subparsers.add_parser("preview", help="Generate preview video from adjusted sentences")
+    preview_parser.add_argument("video", help="Video base name")
+    preview_parser.add_argument("--source", default="s5", choices=["s5", "s6"], help="Which adjusted sentences to use")
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        # No CLI args, run interactive menu
+        main()
+        return
+
+    from src.cli_tools import run_tool
+    run_tool(args)
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        cli()
+    else:
+        main()

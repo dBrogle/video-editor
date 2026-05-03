@@ -31,6 +31,17 @@ from src.constants import (
     STAGE_13_FULL_RES_CUT_MLT_NAME,
     STAGE_14_FULL_RES_WITH_IMAGES_NAME,
     STAGE_14_FULL_RES_WITH_IMAGES_MLT_NAME,
+    STREAM_STAGE_1_DOWNSAMPLED_NAME,
+    STREAM_STAGE_1_AUDIO_NAME,
+    STREAM_STAGE_2_TRANSCRIPTION_NAME,
+    STREAM_STAGE_3_EDITING_RESULT_NAME,
+    STREAM_STAGE_4_SENTENCE_SELECTION_VIDEO_NAME,
+    STREAM_STAGE_4_FINAL_EDITING_RESULT_NAME,
+    STREAM_STAGE_5_ADJUSTED_SENTENCES_NAME,
+    STREAM_STAGE_6_ADJUSTED_SENTENCES_VIDEO_NAME,
+    STREAM_STAGE_6_FINAL_ADJUSTED_SENTENCES_NAME,
+    STREAM_STAGE_7_FINAL_VIDEO_NAME,
+    STREAM_STAGE_7_MLT_NAME,
 )
 
 
@@ -285,6 +296,65 @@ def get_full_res_with_images_mlt_path(base_name: str) -> Path:
     if step_12_path.exists():
         return step_12_path
     return _build_asset_path(base_name, STAGE_14_FULL_RES_WITH_IMAGES_MLT_NAME, "mlt")
+
+
+# ============================================================
+# Stream pipeline path helpers
+# ============================================================
+
+def get_stream_downsampled_video_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_1_DOWNSAMPLED_NAME, "mp4")
+
+
+def get_stream_audio_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_1_AUDIO_NAME, "mp3")
+
+
+def get_stream_transcription_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_2_TRANSCRIPTION_NAME, "json")
+
+
+def get_stream_editing_result_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_3_EDITING_RESULT_NAME, "json")
+
+
+def get_stream_sentence_selection_video_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_4_SENTENCE_SELECTION_VIDEO_NAME, "mp4")
+
+
+def get_stream_final_editing_result_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_4_FINAL_EDITING_RESULT_NAME, "json")
+
+
+def get_stream_adjusted_sentences_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_5_ADJUSTED_SENTENCES_NAME, "json")
+
+
+def get_stream_adjusted_sentences_video_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_6_ADJUSTED_SENTENCES_VIDEO_NAME, "mp4")
+
+
+def get_stream_final_adjusted_sentences_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_6_FINAL_ADJUSTED_SENTENCES_NAME, "json")
+
+
+def get_stream_final_video_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_7_FINAL_VIDEO_NAME, "mp4")
+
+
+def get_stream_final_mlt_path(base_name: str) -> Path:
+    _ensure_asset_folder(base_name)
+    return _build_asset_path(base_name, STREAM_STAGE_7_MLT_NAME, "mlt")
 
 
 def reset_pipeline(base_name: str) -> None:

@@ -63,6 +63,24 @@ STAGE_13_FULL_RES_CUT_NAME = "s13_full_res_cut"
 STAGE_13_FULL_RES_CUT_MLT_NAME = "s13_full_res_cut_mlt"
 STAGE_14_FULL_RES_WITH_IMAGES_NAME = "s14_full_res_with_images"
 STAGE_14_FULL_RES_WITH_IMAGES_MLT_NAME = "s14_full_res_with_images_mlt"
+# Stream pipeline stages
+STREAM_STAGE_1_DOWNSAMPLED_NAME = "stream_s1_downsampled"
+STREAM_STAGE_1_AUDIO_NAME = "stream_s1_audio"
+STREAM_STAGE_2_TRANSCRIPTION_NAME = "stream_s2_transcription"
+STREAM_STAGE_3_EDITING_RESULT_NAME = "stream_s3_editing_result"
+STREAM_STAGE_4_SENTENCE_SELECTION_VIDEO_NAME = "stream_s4_sentence_selection_video"
+STREAM_STAGE_4_FINAL_EDITING_RESULT_NAME = "stream_s4_final_editing_result"
+STREAM_STAGE_5_ADJUSTED_SENTENCES_NAME = "stream_s5_adjusted_sentences"
+STREAM_STAGE_6_ADJUSTED_SENTENCES_VIDEO_NAME = "stream_s6_adjusted_sentences_video"
+STREAM_STAGE_6_FINAL_ADJUSTED_SENTENCES_NAME = "stream_s6_final_adjusted_sentences"
+STREAM_STAGE_7_FINAL_VIDEO_NAME = "stream_s7_final"
+STREAM_STAGE_7_MLT_NAME = "stream_s7_final_mlt"
+
+# Stream processing settings
+STREAM_LOW_RES_HEIGHT = 360  # Slightly higher than shorts proxy for readability
+STREAM_CHUNK_SIZE = 100  # Sentences per LLM chunk
+STREAM_CHUNK_OVERLAP = 5  # Overlap between chunks
+
 # Legacy/shared resources
 STAGE_7_IMAGES_FOLDER_NAME = "images"
 STAGE_7_IMAGES_METADATA_NAME = "images_metadata"
@@ -90,12 +108,12 @@ TIME_BETWEEN_WORDS_THRESHOLD = (
 )
 
 # Image overlay settings
-# Position: 10th-60th percentile height (centered vertically in upper portion, larger area)
-# Position: 20th-80th percentile width (centered horizontally, wider area)
-IMAGE_SAFE_ZONE_TOP_PERCENT = 0.15  # Start at 10% from top
-IMAGE_SAFE_ZONE_BOTTOM_PERCENT = 0.33  # End at 60% from top
-IMAGE_SAFE_ZONE_LEFT_PERCENT = 0.15  # Start at 20% from left
-IMAGE_SAFE_ZONE_RIGHT_PERCENT = 0.85  # End at 80% from left
+# Position: 10th-45th percentile height (upper portion)
+# Position: 10th-90th percentile width (wide)
+IMAGE_SAFE_ZONE_TOP_PERCENT = 0.10
+IMAGE_SAFE_ZONE_BOTTOM_PERCENT = 0.40
+IMAGE_SAFE_ZONE_LEFT_PERCENT = 0.15
+IMAGE_SAFE_ZONE_RIGHT_PERCENT = 0.85
 IMAGE_DEFAULT_WIDTH = 1024
 IMAGE_DEFAULT_HEIGHT = 1024
 

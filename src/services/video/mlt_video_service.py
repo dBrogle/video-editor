@@ -901,6 +901,76 @@ class MLTVideoService:
             f"Created MLT XML file for cutting with images: {output_mlt_path}"
         )
 
+    def create_stream_final_video(
+        self,
+        base_name: str,
+        adjusted_sentences: AdjustedSentences,
+        force: bool = False,
+    ) -> Path:
+        """
+        Create the final stream video with cuts only (no image overlays).
+        Operates on the original video file at native resolution (horizontal).
+
+        Args:
+            base_name: Base filename without extension
+            adjusted_sentences: AdjustedSentences with timestamps
+            force: If True, regenerate even if file exists
+
+        Returns:
+            Path to final cut video
+
+        Raises:
+            FileNotFoundError: If input video doesn't exist
+            RuntimeError: If melt command fails
+        """
+        from src.util import (
+            get_input_video_path,
+            get_stream_final_video_path,
+            get_stream_final_mlt_path,
+        )
+
+        input_path = get_input_video_path(base_name)
+        output_path = get_stream_final_video_path(base_name)
+        mlt_xml_path = get_stream_final_mlt_path(base_name)
+
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input video not found: {input_path}")
+
+        if output_path.exists() and not force:
+            print_progress(f"Stream final video already exists: {output_path}")
+            return output_path
+
+        print_progress(f"Creating stream final video from: {input_path.name}...")
+        print_progress(f"Cutting {len(adjusted_sentences.sentences)} sentences")
+
+        # Reuse the existing cuts-only MLT XML builder
+        self._create_mlt_xml_for_cutting(
+            input_path,
+            adjusted_sentences,
+            mlt_xml_path,
+        )
+
+        cmd = [
+            "melt",
+            str(mlt_xml_path),
+            "-consumer",
+            f"avformat:{output_path}",
+            "vcodec=libx264",
+            "acodec=aac",
+            f"crf={HIGH_RES_CRF}",
+            "preset=medium",
+            "pix_fmt=yuv420p",
+        ]
+
+        print_progress("Running melt command (stream final - cuts only)...")
+        print_progress(f"Command: {' '.join(cmd)}")
+
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        print_progress(f"Stream final video created: {output_path}")
+        print_progress(f"MLT XML saved for debugging: {mlt_xml_path}")
+        return output_path
+
     def create_1080p_video_with_images(
         self,
         base_name: str,

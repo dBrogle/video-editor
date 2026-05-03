@@ -32,6 +32,36 @@ from src.util import (
 )
 
 
+def _prescale_google_doc_images(images_folder: Path, target_width: int = 1080, target_height: int = 1920) -> None:
+    """Scale up any Google Doc images that are smaller than the video safe zone, in-place."""
+    from PIL import Image
+    from src.constants import (
+        IMAGE_SAFE_ZONE_TOP_PERCENT,
+        IMAGE_SAFE_ZONE_BOTTOM_PERCENT,
+        IMAGE_SAFE_ZONE_LEFT_PERCENT,
+        IMAGE_SAFE_ZONE_RIGHT_PERCENT,
+    )
+
+    sz_width = int(target_width * (IMAGE_SAFE_ZONE_RIGHT_PERCENT - IMAGE_SAFE_ZONE_LEFT_PERCENT))
+    sz_height = int(target_height * (IMAGE_SAFE_ZONE_BOTTOM_PERCENT - IMAGE_SAFE_ZONE_TOP_PERCENT))
+
+    for img_path in sorted(images_folder.iterdir()):
+        if img_path.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp'):
+            continue
+        with Image.open(img_path) as img:
+            w, h = img.size
+            if w >= sz_width and h >= sz_height:
+                continue
+            width_scale = sz_width / w
+            height_scale = sz_height / h
+            scale = max(width_scale, height_scale)
+            new_w, new_h = int(w * scale), int(h * scale)
+            print_progress(f"    Prescaling {img_path.name}: {w}x{h} -> {new_w}x{new_h}")
+            scaled = img.resize((new_w, new_h), Image.LANCZOS)
+            scaled.save(img_path)
+            scaled.close()
+
+
 def _preprocess_google_doc_zip(base_name: str, force: bool = False) -> bool:
     base_folder = get_base_folder(base_name)
     google_doc_folder = get_google_doc_folder(base_name)
@@ -40,6 +70,8 @@ def _preprocess_google_doc_zip(base_name: str, force: bool = False) -> bool:
 
     if target_html_path.exists() and target_images_folder.exists() and not force:
         print_progress("  - Google Doc already extracted, skipping")
+        if target_images_folder.exists():
+            _prescale_google_doc_images(target_images_folder)
         return True
 
     zip_files = list(base_folder.glob("*.zip"))
@@ -89,6 +121,7 @@ def _preprocess_google_doc_zip(base_name: str, force: bool = False) -> bool:
 
         print_progress(f"    HTML: {target_html_path.name}")
         print_progress(f"    Images: {target_images_folder.name}/")
+        _prescale_google_doc_images(target_images_folder)
         return True
 
     finally:
