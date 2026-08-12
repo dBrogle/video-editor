@@ -171,6 +171,87 @@ class MLTVideoService:
 
         return output_path
 
+    def _apply_audio_crossfade(
+        self,
+        rendered_path: Path,
+        source_path: Path,
+        adjusted_sentences: AdjustedSentences,
+        xfade_duration: float = 0.05,
+        fps: float | None = None,
+    ) -> None:
+        """Re-bake the audio of the rendered video with crossfades at each sentence boundary.
+
+        MLT butt-joins clips so each cut produces a hard click in the audio. This pass
+        keeps the rendered video stream untouched, rebuilds audio from the source by
+        trimming each sentence with a half-xfade of overlap on each side, then chains
+        `acrossfade` between successive clips. A/V sync is preserved because the
+        symmetric overlap reduces total length by exactly one xfade per joint, which
+        cancels with the extra padding on each clip.
+
+        Replaces rendered_path in place. Source must be the same file MLT cut from.
+        After the crossfade chain, audio is padded with silence to exactly match
+        the rendered video duration — MLT's timecode-string rounding means the
+        rendered video can be a few frames longer than `sum(adjusted_end-start)`,
+        and without this pad the tail drifts out of sync.
+        """
+        n = len(adjusted_sentences.sentences)
+        if n < 2:
+            return
+
+        video_dur = float(
+            subprocess.run(
+                [
+                    "ffprobe", "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    str(rendered_path),
+                ],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+        )
+
+        half = xfade_duration / 2
+        parts = []
+        for i, s in enumerate(adjusted_sentences.sentences):
+            st, en = s.adjusted_start, s.adjusted_end
+            if fps is not None:
+                # Snap each clip's audio length to whole frames so audio matches
+                # MLT's frame-quantized per-clip video durations. Otherwise audio
+                # drifts ~1/fps longer per clip and accumulates over many cuts.
+                en = st + int((en - st) * fps) / fps
+            a_st = st if i == 0 else max(0.0, st - half)
+            a_en = en if i == n - 1 else en + half
+            parts.append(
+                f"[1:a]atrim=start={a_st}:end={a_en},asetpts=PTS-STARTPTS[a{i}]"
+            )
+
+        prev = "a0"
+        for i in range(1, n):
+            tag = f"ax{i}"
+            parts.append(f"[{prev}][a{i}]acrossfade=d={xfade_duration}[{tag}]")
+            prev = tag
+        parts.append(f"[{prev}]apad=whole_dur={video_dur}[aout]")
+
+        fc = ";".join(parts)
+
+        tmp_path = rendered_path.with_suffix(".no_xfade.mp4")
+        rendered_path.rename(tmp_path)
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(tmp_path),
+            "-i", str(source_path),
+            "-filter_complex", fc,
+            "-map", "0:v",
+            "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            str(rendered_path),
+        ]
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        tmp_path.unlink()
+
     def _build_sentence_timeline(self, adjusted_sentences: AdjustedSentences) -> dict:
         """
         Build a mapping of sentence IDs to their cumulative times in the cut video.
@@ -521,7 +602,10 @@ class MLTVideoService:
         total_duration = sum(
             s.adjusted_end - s.adjusted_start for s in adjusted_sentences.sentences
         )
-        total_frames = int(total_duration * props["fps"])
+        total_frames = sum(
+            int((s.adjusted_end - s.adjusted_start) * props["fps"])
+            for s in adjusted_sentences.sentences
+        )
         total_timecode = frames_to_timecode(total_frames, props["fps"])
 
         # Create root element and profile
@@ -671,7 +755,10 @@ class MLTVideoService:
         total_duration = sum(
             s.adjusted_end - s.adjusted_start for s in adjusted_sentences.sentences
         )
-        total_frames = int(total_duration * props["fps"])
+        total_frames = sum(
+            int((s.adjusted_end - s.adjusted_start) * props["fps"])
+            for s in adjusted_sentences.sentences
+        )
         total_timecode = frames_to_timecode(total_frames, props["fps"])
 
         # Add black background producer
@@ -812,7 +899,10 @@ class MLTVideoService:
         total_duration = sum(
             s.adjusted_end - s.adjusted_start for s in adjusted_sentences.sentences
         )
-        total_frames = int(total_duration * props["fps"])
+        total_frames = sum(
+            int((s.adjusted_end - s.adjusted_start) * props["fps"])
+            for s in adjusted_sentences.sentences
+        )
         total_timecode = frames_to_timecode(total_frames, props["fps"])
 
         # Add black background producer
@@ -1150,6 +1240,15 @@ class MLTVideoService:
         print_progress(f"Command: {' '.join(cmd)}")
 
         subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        # === AUDIO CROSSFADE PASS — comment out this block to revert to butt-joined cuts ===
+        print_progress("Applying 80ms audio crossfades at sentence boundaries...")
+        input_fps = get_video_properties(input_path)["fps"]
+        self._apply_audio_crossfade(
+            output_path, input_path, adjusted_sentences,
+            xfade_duration=0.08, fps=input_fps,
+        )
+        # === END AUDIO CROSSFADE PASS ===
 
         print_progress(f"1080p video with cuts and images created: {output_path}")
         print_progress(f"MLT XML saved for debugging: {mlt_xml_path}")

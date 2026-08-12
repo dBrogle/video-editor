@@ -21,6 +21,11 @@ from cc_wsp.src.constants import (
     CAPTION_MAX_CHARS_PER_CHUNK,
     CAPTION_COLOR,
     CAPTION_OUTLINE_COLOR,
+    CAPTION_BG_COLOR,
+    CAPTION_BG_OPACITY,
+    CAPTION_BG_CORNER_RADIUS,
+    CAPTION_BG_PADDING_H,
+    CAPTION_BG_PADDING_V,
     TITLE_CARD_FONT_PATH,
     TITLE_CARD_FONT_INDEX,
     TITLE_CARD_BG_COLOR,
@@ -59,38 +64,28 @@ class TitleCardConfig:
     text: str
     start: float
     end: float
+    sentence_index: str | None = None
 
 
 def build_word_timeline(
     adjusted: AdjustedSentences, transcription: Transcript
 ) -> list[WordTiming]:
     """Map word timestamps from transcription to final video time."""
-    # Build index of transcription sentences by their 1-based index
-    trans_by_index: dict[int, list] = {}
-    for i, s in enumerate(transcription.sentences, 1):
-        trans_by_index[i] = s.words
+    all_words = [w for s in transcription.sentences for w in s.words]
 
     timeline: list[WordTiming] = []
     video_cursor = 0.0
 
     for adj in adjusted.sentences:
-        # Handle split sentence indices like "13b" → look up original sentence 13
-        idx_str = adj.index.rstrip("abcdefgh")
-        idx = int(idx_str)
         duration = adj.adjusted_end - adj.adjusted_start
 
-        # Get words from transcription — include any word that overlaps
-        # the adjusted range, clipping timing to the boundaries
-        words = trans_by_index.get(idx, [])
-        for w in words:
-            # Word overlaps if it starts before adjusted_end and ends after adjusted_start
+        for w in all_words:
             if w.start < adj.adjusted_end and w.end > adj.adjusted_start:
-                # Clip word timing to adjusted boundaries
                 clipped_start = max(w.start, adj.adjusted_start)
                 clipped_end = min(w.end, adj.adjusted_end)
                 offset = clipped_start - adj.adjusted_start
                 word_dur = clipped_end - clipped_start
-                if word_dur > 0.01:  # skip if clipped to nothing
+                if word_dur > 0.01:
                     timeline.append(
                         WordTiming(
                             word=w.word,
@@ -165,6 +160,11 @@ def render_caption_png(
     outline_width: int = CAPTION_OUTLINE_WIDTH,
     text_color: tuple = CAPTION_COLOR,
     outline_color: tuple = CAPTION_OUTLINE_COLOR,
+    bg_color: tuple = CAPTION_BG_COLOR,
+    bg_opacity: int = CAPTION_BG_OPACITY,
+    bg_corner_radius: int = CAPTION_BG_CORNER_RADIUS,
+    bg_padding_h: int = CAPTION_BG_PADDING_H,
+    bg_padding_v: int = CAPTION_BG_PADDING_V,
 ) -> Image.Image:
     """Render a single caption frame as a transparent PNG."""
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -179,6 +179,20 @@ def render_caption_png(
     # Center horizontally, position at y_percent vertically
     x = (width - tw) // 2
     y = int(height * y_percent) - th // 2
+
+    # Translucent rounded pill behind the text for readability. Sized to the
+    # ink bbox (bbox offsets matter for fonts with ascenders/descenders), then
+    # expanded by the outline width and padding.
+    if bg_opacity > 0:
+        ink_l = x + bbox[0] - outline_width - bg_padding_h
+        ink_t = y + bbox[1] - outline_width - bg_padding_v
+        ink_r = x + bbox[2] + outline_width + bg_padding_h
+        ink_b = y + bbox[3] + outline_width + bg_padding_v
+        draw.rounded_rectangle(
+            (ink_l, ink_t, ink_r, ink_b),
+            radius=bg_corner_radius,
+            fill=(*bg_color, bg_opacity),
+        )
 
     # Draw black outline by rendering text at offsets
     for dx in range(-outline_width, outline_width + 1):
@@ -349,6 +363,7 @@ def extract_title_instructions(
                 start, end = sentence_timing[best_idx]
                 title_cards.append(TitleCardConfig(
                     text=title_text, start=start, end=end,
+                    sentence_index=best_idx,
                 ))
 
     return title_cards

@@ -668,8 +668,94 @@ class VideoService:
             for clip in clips:
                 clip.close()
 
+            fps_str = subprocess.run(
+                [
+                    "ffprobe", "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=r_frame_rate",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    str(output_path),
+                ],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            num, den = fps_str.split("/")
+            fps = float(num) / float(den)
+            self._apply_audio_crossfade(
+                output_path, input_path, adjusted_sentences,
+                xfade_duration=0.08, fps=fps,
+            )
+
             print_progress(f"Edited video created: {output_path}")
             return output_path
 
         except Exception as e:
             raise RuntimeError(f"Video editing failed: {str(e)}") from e
+
+    def _apply_audio_crossfade(
+        self,
+        rendered_path: Path,
+        source_path: Path,
+        adjusted_sentences,
+        xfade_duration: float = 0.08,
+        fps: float | None = None,
+    ) -> None:
+        """Re-bake audio of moviepy-rendered video with crossfades at each cut.
+
+        moviepy concatenate_videoclips butt-joins, so each cut produces a click and
+        an abrupt joint. This rebuilds audio from the source with a half-xfade of
+        overlap on each side of each clip, then chains `acrossfade` between
+        successive clips. Video stream is copied unchanged. A/V sync is preserved
+        because the symmetric overlaps cancel out one xfade per joint.
+        """
+        sentences = adjusted_sentences.sentences
+        n = len(sentences)
+        if n < 2:
+            return
+
+        video_dur = float(
+            subprocess.run(
+                [
+                    "ffprobe", "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    str(rendered_path),
+                ],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+        )
+
+        half = xfade_duration / 2
+        parts = []
+        for i, s in enumerate(sentences):
+            st, en = s.adjusted_start, s.adjusted_end
+            if fps is not None:
+                en = st + int((en - st) * fps) / fps
+            a_st = st if i == 0 else max(0.0, st - half)
+            a_en = en if i == n - 1 else en + half
+            parts.append(f"[1:a]atrim=start={a_st}:end={a_en},asetpts=PTS-STARTPTS[a{i}]")
+
+        prev = "a0"
+        for i in range(1, n):
+            tag = f"ax{i}"
+            parts.append(f"[{prev}][a{i}]acrossfade=d={xfade_duration}[{tag}]")
+            prev = tag
+        parts.append(f"[{prev}]apad=whole_dur={video_dur}[aout]")
+
+        fc = ";".join(parts)
+        tmp_path = rendered_path.with_suffix(".no_xfade.mp4")
+        rendered_path.rename(tmp_path)
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(tmp_path),
+            "-i", str(source_path),
+            "-filter_complex", fc,
+            "-map", "0:v",
+            "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            str(rendered_path),
+        ]
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        tmp_path.unlink()

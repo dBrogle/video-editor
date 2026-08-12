@@ -112,6 +112,14 @@ class GoogleDocImagePlacement(BaseModel):
     sentence_index: str
     start_fraction: float = 0.0
     end_fraction: float = 1.0
+    # Images sharing the same (sentence_index, start_fraction, end_fraction) form a
+    # concurrent group shown at the same time. `layout` controls how that group is
+    # composited into the safe zone:
+    #   "tile"       -> auto grid (rows/cols chosen to match the safe-zone aspect)
+    #   "horizontal" -> single row, images side by side
+    #   "vertical"   -> single column, images stacked top-to-bottom
+    # Ignored for solo placements. The whole group renders with the first member's layout.
+    layout: str = "tile"
 
 
 class GoogleDocImagePlacements(BaseModel):

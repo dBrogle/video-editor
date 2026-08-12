@@ -127,14 +127,18 @@ def calculate_safe_zone(
 
 def get_image_dimensions(image_path: Path) -> tuple[int, int]:
     """
-    Get the dimensions of an image file.
+    Get the dimensions of an image file. Falls back to ffprobe for video
+    formats so .mp4/.mov overlays can share the image-positioning path.
 
     Args:
-        image_path: Path to image file
+        image_path: Path to image or video file
 
     Returns:
         Tuple of (width, height)
     """
+    if image_path.suffix.lower() in (".mp4", ".mov", ".webm", ".m4v"):
+        props = get_video_properties(image_path)
+        return props["width"], props["height"]
     with Image.open(image_path) as img:
         return img.size
 
@@ -312,7 +316,7 @@ def add_black_producer(root: ET.Element, total_timecode: str) -> None:
     test_audio_prop.text = "0"
 
 
-def add_video_chain(root: ET.Element, video_path: Path, total_timecode: str) -> None:
+def add_video_chain(root: ET.Element, video_path: Path, total_timecode: str) -> ET.Element:
     """
     Add video chain (not simple producer) to MLT XML root.
     Shotcut uses chains to wrap media files for filters/effects.
@@ -321,6 +325,9 @@ def add_video_chain(root: ET.Element, video_path: Path, total_timecode: str) -> 
         root: MLT XML root element
         video_path: Path to video file
         total_timecode: Total duration timecode
+
+    Returns:
+        The created <chain> element (so callers can attach filters to it).
     """
     chain = ET.SubElement(
         root, "chain", {"id": "chain_source_video", "out": total_timecode}
@@ -368,6 +375,48 @@ def add_video_chain(root: ET.Element, video_path: Path, total_timecode: str) -> 
 
     xml_prop = ET.SubElement(chain, "property", {"name": "xml"})
     xml_prop.text = "was here"
+
+    return chain
+
+
+def add_zoom_filter_ranged(
+    chain: ET.Element,
+    filter_id: str,
+    video_width: int,
+    video_height: int,
+    tc_in: str,
+    tc_out: str,
+    zoom_factor: float = 1.1,
+    x_offset: float = 0.0,
+    y_offset: float = 0.0,
+) -> None:
+    """Like add_zoom_filter, but the affine filter is only active for the
+    [tc_in, tc_out] frame range (MLT honors in/out attributes on <filter>).
+
+    Used by the v2 overlay path where the whole cut is one chain and zooms
+    must be scoped to specific sentence time ranges.
+    """
+    w = video_width * zoom_factor
+    h = video_height * zoom_factor
+    cx = -(w - video_width) / 2
+    cy = -(h - video_height) / 2
+    max_pan_x = (w - video_width) / 2
+    max_pan_y = (h - video_height) / 2
+    x = cx + x_offset * max_pan_x
+    y = cy + y_offset * max_pan_y
+    rect = f"{x:.3f} {y:.3f} {w:.3f} {h:.3f} 1"
+
+    filt = ET.SubElement(chain, "filter", {"id": filter_id, "in": tc_in, "out": tc_out})
+    ET.SubElement(filt, "property", {"name": "background"}).text = "color:#00000000"
+    ET.SubElement(filt, "property", {"name": "mlt_service"}).text = "affine"
+    ET.SubElement(filt, "property", {"name": "shotcut:filter"}).text = "affineSizePosition"
+    ET.SubElement(filt, "property", {"name": "transition.fix_rotate_x"}).text = "0"
+    ET.SubElement(filt, "property", {"name": "transition.fill"}).text = "1"
+    ET.SubElement(filt, "property", {"name": "transition.distort"}).text = "0"
+    ET.SubElement(filt, "property", {"name": "transition.rect"}).text = rect
+    ET.SubElement(filt, "property", {"name": "transition.valign"}).text = "middle"
+    ET.SubElement(filt, "property", {"name": "transition.halign"}).text = "center"
+    ET.SubElement(filt, "property", {"name": "transition.threads"}).text = "0"
 
 
 def convert_gif_to_video(gif_path: Path, loop_duration: float = 30.0) -> Path:
@@ -424,11 +473,15 @@ def add_image_producer(
         center_image: If True and safe_zone provided, center image within safe zone
         use_prescaled: If True, assumes image is already scaled to safe zone size
     """
-    is_gif = image_path.suffix.lower() == ".gif"
+    suffix = image_path.suffix.lower()
+    is_gif = suffix == ".gif"
+    is_video = suffix in (".mp4", ".mov", ".webm", ".m4v")
 
-    if is_gif:
-        # Convert animated GIF to looping MP4 video
-        video_path = convert_gif_to_video(image_path)
+    if is_gif or is_video:
+        # GIFs need to be converted to MP4 first; other video formats can be used directly.
+        # In both cases, MLT's avformat producer with eof=loop handles looping for any
+        # placement duration.
+        video_path = convert_gif_to_video(image_path) if is_gif else image_path
         producer = ET.SubElement(
             root,
             "producer",
@@ -442,6 +495,7 @@ def add_image_producer(
         ET.SubElement(producer, "property", {"name": "eof"}).text = "loop"
         ET.SubElement(producer, "property", {"name": "resource"}).text = str(video_path)
         ET.SubElement(producer, "property", {"name": "mlt_service"}).text = "avformat"
+        ET.SubElement(producer, "property", {"name": "audio_index"}).text = "-1"
     else:
         # Static image — use qimage producer
         producer = ET.SubElement(
@@ -607,6 +661,7 @@ def add_composite_transition(
     b_track: int,
     safe_zone: dict,
     center_images: bool = True,
+    align_top_left: bool = False,
 ) -> None:
     """
     Add composite transition for overlay positioning.
@@ -644,8 +699,12 @@ def add_composite_transition(
     ET.SubElement(composite_transition, "property", {"name": "fill"}).text = fill_value
     ET.SubElement(composite_transition, "property", {"name": "distort"}).text = "0"
     ET.SubElement(composite_transition, "property", {"name": "operator"}).text = "over"
-    ET.SubElement(composite_transition, "property", {"name": "halign"}).text = "center"
-    ET.SubElement(composite_transition, "property", {"name": "valign"}).text = "middle"
+    if align_top_left:
+        ET.SubElement(composite_transition, "property", {"name": "halign"}).text = "left"
+        ET.SubElement(composite_transition, "property", {"name": "valign"}).text = "top"
+    else:
+        ET.SubElement(composite_transition, "property", {"name": "halign"}).text = "center"
+        ET.SubElement(composite_transition, "property", {"name": "valign"}).text = "middle"
 
 
 def create_base_playlists(
@@ -687,6 +746,7 @@ def create_main_tractor(
     total_timecode: str,
     safe_zone: dict,
     num_overlay_tracks: int = 1,
+    overlay_align_top_left: bool = False,
 ) -> None:
     """
     Create main tractor with all tracks and transitions.
@@ -731,7 +791,10 @@ def create_main_tractor(
         track_num = i + 2  # overlay tracks start at index 2
         add_mix_transition(tractor, f"transition{transition_idx}", 0, track_num)
         transition_idx += 1
-        add_composite_transition(tractor, f"transition{transition_idx}", 1, track_num, safe_zone)
+        add_composite_transition(
+            tractor, f"transition{transition_idx}", 1, track_num, safe_zone,
+            align_top_left=overlay_align_top_left,
+        )
         transition_idx += 1
 
 

@@ -68,13 +68,17 @@ class DeepgramSTTService(SpeechToTextService):
                 # Read the file content
                 audio_data = audio_file.read()
 
-                # Call Deepgram API with transcription options
+                # Call Deepgram API with transcription options.
+                # Long recordings (e.g. a 75-min screen capture ~17MB) can
+                # exceed the SDK's default write timeout during upload, so
+                # give the request a generous timeout.
                 response = self.client.listen.v1.media.transcribe_file(
                     request=audio_data,
                     model="nova-3",
                     language="en",
                     smart_format=True,
                     punctuate=True,
+                    request_options={"timeout_in_seconds": 1200},
                 )
 
             # Convert SDK response to internal model with sentences

@@ -65,6 +65,11 @@ CAPTION_MAX_WORDS_PER_CHUNK = 4  # fallback, character limit takes priority
 CAPTION_MAX_CHARS_PER_CHUNK = 20
 CAPTION_COLOR = (255, 255, 255)  # white
 CAPTION_OUTLINE_COLOR = (0, 0, 0)  # black
+CAPTION_BG_COLOR = (0, 0, 0)  # black pill behind text for readability
+CAPTION_BG_OPACITY = 128  # 0-255; 128 ≈ 50%
+CAPTION_BG_CORNER_RADIUS = 18
+CAPTION_BG_PADDING_H = 26
+CAPTION_BG_PADDING_V = 14
 
 # Title card
 TITLE_CARD_FONT_PATH = str(WORKSPACE_ROOT / "assets" / "fonts" / "Milliard-SemiBold.otf")

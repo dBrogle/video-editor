@@ -1,0 +1,90 @@
+{
+ "description": "b305_chinese (Chinese AI models). Hand-verified silence-removal boundaries from the approved cut. Covers plosive/sibilant preservation, mouth-noise and laugh removal, trailing dead-space (incl. a window-relative dB trap), and a short isolated clip. See feedback_audio_levels_window_relative.",
+ "cases": [
+  {
+   "name": "hook_laugh_trim",
+   "description": "Trailing laugh after 'American.' must be cut. Word ends ~7.73; laugh energy starts ~7.84.",
+   "sentence_text": "American AI thinks it's Chinese, and Chinese AI no longer thinks it's American.",
+   "original_start": 2.32,
+   "original_end": 7.76,
+   "expected_start": 2.28,
+   "expected_end": 7.73
+  },
+  {
+   "name": "mouth_click_start_and_l_end",
+   "description": "Mouth-click before 'But' (33.91-33.96) must be skipped; real plosive starts ~34.0. Held 'l' of 'model' tightened to ~36.45.",
+   "sentence_text": "But how and why would you copy a model?",
+   "original_start": 33.96,
+   "original_end": 36.84,
+   "expected_start": 34.0,
+   "expected_end": 36.45
+  },
+  {
+   "name": "assistant_t_preserve",
+   "description": "Final 't' of 'assistant' must not be clipped. Closure/release runs to ~53.72 after a mid-word dip; do not stop at the 'assis-' dip (~53.57).",
+   "sentence_text": "Well, after you feed a model the Internet, you have to give it some examples of it acting like an assistant.",
+   "original_start": 49.395,
+   "original_end": 53.795,
+   "expected_start": 49.512,
+   "expected_end": 53.73,
+   "xfail": "Algorithm stops at the mid-word dip (~53.575) and clips the final 't' of 'assistant'."
+  },
+  {
+   "name": "trailing_pop_dead_space",
+   "description": "Loud lip-pop after 'hard' (60.39-60.51, peaks louder than the word itself) plus trailing dead space must be cut. Word 'hard' ends ~60.36.",
+   "sentence_text": "And making lots of good examples is hard.",
+   "original_start": 57.85,
+   "original_end": 60.73,
+   "expected_start": 58.054,
+   "expected_end": 60.36,
+   "xfail": "Algorithm keeps the loud lip-pop (ends ~60.515) instead of cutting back to the word end (~60.36)."
+  },
+  {
+   "name": "plosive_b_start_and_l_end",
+   "description": "Voiced 'b' of 'But' onsets ~62.22 (Deepgram start 62.33 is late and clips it); final 'l' of 'model' runs to ~70.59.",
+   "sentence_text": "But you can just use someone else's model to make the examples for you and then use that to train yours, but then yours will sometimes say that it's the other model.",
+   "original_start": 62.33,
+   "original_end": 70.73,
+   "expected_start": 62.22,
+   "expected_end": 70.59,
+   "xfail": "Algorithm starts inside the vowel (~62.37+) instead of at the voiced 'b' onset (~62.22), clipping the plosive."
+  },
+  {
+   "name": "contiguous_start_no_overtrim",
+   "description": "Clip is contiguous with the previous one (prev original_end == this original_start). Must NOT trim the start before the word 'But' (76.705) or it replays the prior clip's tail. Sibilant 'Chinese' end kept full (~82.705).",
+   "sentence_text": "But recently, Yale of Ohio researchers asked some American models who they thought they were in Chinese.",
+   "original_start": 76.705,
+   "original_end": 82.705,
+   "expected_start": 76.705,
+   "expected_end": 82.705
+  },
+  {
+   "name": "short_clip_why",
+   "description": "Short isolated clip; silence-detect over-trims it. 'wh' onset ~94.87 (don't clip the start), and trailing silence after the vowel must be cut to ~95.46.",
+   "sentence_text": "Why?",
+   "original_start": 95.09,
+   "original_end": 95.81,
+   "expected_start": 94.87,
+   "expected_end": 95.46,
+   "xfail": "Short isolated clip: algorithm starts late (~95.02) and clips the 'wh' onset of 'Why' (golden start 94.87)."
+  },
+  {
+   "name": "system_message_end",
+   "description": "Second take only (the full sentence contains a doubled false-start retake before this). Trim tiny dead space after the soft sibilant of 'message' to ~106.03.",
+   "sentence_text": "When using Claude here, it adds instructions from the makers called a system message.",
+   "original_start": 101.815,
+   "original_end": 106.375,
+   "expected_start": 101.84,
+   "expected_end": 106.03
+  },
+  {
+   "name": "dead_space_after_sibilant",
+   "description": "Window-relative dB trap: with the loud word in-window, energy past ~135.55 is dead space (-37 dB), not sibilant. Sibilant 's' of 'instructions' ends ~135.55; do not over-extend into the dead space.",
+   "sentence_text": "But in code, you can directly use the model without the maker's instructions.",
+   "original_start": 131.865,
+   "original_end": 135.785,
+   "expected_start": 131.9,
+   "expected_end": 135.55
+  }
+ ]
+}

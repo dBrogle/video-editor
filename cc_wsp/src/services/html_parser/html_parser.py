@@ -43,8 +43,12 @@ class GoogleDocHTMLParser:
             # Extract text content
             text = self._extract_text(element)
 
-            # Check if element contains an image
-            img_tag = element.find("img")
+            # A single paragraph may hold several images (Google Docs inlines them
+            # side by side when they're pasted on one line), so take all of them.
+            img_tags = element.find_all("img")
+            filenames = [
+                f for f in (self._extract_image_filename(t) for t in img_tags) if f
+            ]
 
             if text:
                 # Check if text is a bracketed instruction (e.g., "[gif of robot dog]")
@@ -53,10 +57,8 @@ class GoogleDocHTMLParser:
                     # Attach instruction to the most recent text line
                     if lines:
                         lines[-1].instructions.append(instruction)
-                elif img_tag:
-                    # Element has both text and image - create line with image
-                    image_filename = self._extract_image_filename(img_tag)
-                    filenames = [image_filename] if image_filename else []
+                elif filenames:
+                    # Element has both text and image(s) - create line with images
                     lines.append(
                         GoogleDocLine(text=text, image_filenames=filenames)
                     )
@@ -65,14 +67,12 @@ class GoogleDocHTMLParser:
                     # Element has only text - save as current text
                     current_text = text
                     lines.append(GoogleDocLine(text=text, image_filenames=[]))
-            elif img_tag:
-                # Element has only image, no text
-                # Assign image to the most recent text line
+            elif filenames:
+                # Element has only image(s), no text
+                # Assign them to the most recent text line
                 # Don't clear current_text — multiple images may follow the same text
                 if lines:
-                    image_filename = self._extract_image_filename(img_tag)
-                    if image_filename:
-                        lines[-1].image_filenames.append(image_filename)
+                    lines[-1].image_filenames.extend(filenames)
 
         return GoogleDocScript(lines=lines)
 

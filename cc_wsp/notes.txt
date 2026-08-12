@@ -1,0 +1,15 @@
+Up next (filmed 2026-07-27; preprocessed + transcribed, ready for suggest-edits):
+AIceberg 2 (321)         # 3 hook attempts in the source -- read b321_aiceberg_2/NOTES.md first
+Fundamentals 15 (216_15) # training / validation / testing data split
+Shut Your Mouth (325)
+Pelican (326)            # hand covers face a lot -> face detect only hit 1/20 samples;
+                         #   face_data.json replaced with the median of the other 5 from this shoot,
+                         #   original detection kept as face_data_detected.json
+
+In progress:
+Fable Kimi (327)         # final_v2_captioned.mp4, 24.0s, --no-title -- awaiting sign-off before on-deck
+
+Done:
+Hugging Face Hack (328)  # delivered -> videos_on_deck/shorts/b328_hugging_face_hack.mp4
+Fundamentals 12 (216_12) # final_v2_captioned.mp4
+Chinese 2 (309)          # final_v2_captioned.mp4

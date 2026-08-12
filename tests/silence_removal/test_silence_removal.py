@@ -78,7 +78,23 @@ def case_id(case):
     return f"{case['_video_name']}/{case['name']}"
 
 
-@pytest.mark.parametrize("case", ALL_CASES, ids=[case_id(c) for c in ALL_CASES])
+def _param(case):
+    """Wrap a case, marking known algorithm gaps as xfail.
+
+    A case may set ``"xfail": "<reason>"`` when the golden answer is the
+    verified-correct boundary but the current algorithm can't yet hit it
+    (e.g. preserving a final plosive after a mid-word dip, cutting a laugh,
+    or rejecting a louder-than-the-word lip pop). Kept as a target so we
+    notice when an algorithm change starts passing it (strict xfail).
+    """
+    marks = []
+    reason = case.get("xfail")
+    if reason:
+        marks.append(pytest.mark.xfail(reason=reason, strict=True))
+    return pytest.param(case, id=case_id(case), marks=marks)
+
+
+@pytest.mark.parametrize("case", [_param(c) for c in ALL_CASES])
 def test_silence_removal(case, video_thresholds):
     audio_path = case["_audio_path"]
     start = case["original_start"]
